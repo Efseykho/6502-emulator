@@ -1,0 +1,44 @@
+This is my first attempt at a 6502 emulator.
+This is basically an attempt at re-implementing the c0dez found at:
+
+http://www.6502asm.com/
+
+and,
+
+http://e-tradition.net/bytes/6502/
+
+
+There are other such emulators. This one is mine!
+
+Currently it implements the whole instruction set of the 6502 chip. Memory accesses
+are not trapped or checked in any way. Also, no timing limits are enforced;
+the instructions are executed as fast as they go and there's no enforcement of instr
+timings.
+
+For now, I've checked in my whole workspace; the development is done using CodeLite,
+on a windows boxen, x86-endiannes. Other-endiannes not supported and WILL NOT work.
+
+The next step is to add memory-mapped/PIO devices and emulate those. 
+The goal for this thing was two-fold: having me learn assembly and see if it would 
+be possible to implement a full-on atari emulator to run on a fuzebox
+(http://ladyada.net/make/fuzebox/index.html).
+
+I still think its possible.
+
+
+*******************
+Outstanding issues:
+
+*******************
+- stubbed out memory accesses
+- instr timings not implemented
+- add doxygen comments
+- add makefile(?)
+
+
+
+
+
+01/03/09 
+First pulled up and hosted on github. Created README.txt
+Please be gentle with it; it has sensitive feelings!
