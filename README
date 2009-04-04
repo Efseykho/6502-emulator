@@ -1,0 +1,23 @@
+This is a collection of tools and utilities to emulate an Atari system.
+The ultimate goal here is to implement a full-on atari emulator to run
+on a fuzebox (http://ladyada.net/make/fuzebox/index.html).
+
+Each folder below here is a seperate project.
+There's a README in each project below
+
+Currently we have:
+*6502-cpu-emulator - emulator for the 6502 cpu. It is mostly done
+
+Short-term future:
+* I've always wanted to mess with assemblers/linkers and existing 6502
+assemblers are very hard to use so I'll write my own. And yes, it is 
+just an excuse to mess around.
+
+* Visualization of 6502-cpu core in action; written in sdl. And yes, it
+is just an excuse to mess with sdl, although it'll be real pretty to look at.
+
+
+History:
+
+04/03/09 
+First commit to newly refactored directory
