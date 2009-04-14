@@ -21,3 +21,6 @@ History:
 
 04/03/09 
 First commit to newly refactored directory
+
+04/13/09
+Checked in base skel for 6502 assembler. Currently, it cant assemble anything.
