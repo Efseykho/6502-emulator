@@ -22,8 +22,8 @@ class TestTokenizer < Test::Unit::TestCase
       end
       
       tok = Tokenizer.new("test.as")
-      assert_equal( 7,tok.buffer.size ) #counts empty lines
-      assert_equal( tok.buffer[6], nil )
+      assert_equal( 11,tok.buffer.size ) #counts empty lines
+      #assert_equal( tok.buffer[6], nil )
       assert_equal( tok.buffer[5], nil )
       assert_equal( tok.buffer[4].to_s, "break:" )
       assert_equal( tok.buffer[3], ["break:", ";"] )
@@ -54,6 +54,13 @@ class TestTokenizer < Test::Unit::TestCase
     assert( tok.has_more? )
     str = tok.get_line
     assert_equal(str, "break:")
+    
+    assert( tok.has_more? )
+    str = tok.get_line
+    assert( tok.has_more? )
+    str = tok.get_line
+    assert( tok.has_more? )
+    str = tok.get_line
     
     assert( tok.has_more? == false )
     str = tok.get_line
@@ -113,8 +120,17 @@ class TestTokenizer < Test::Unit::TestCase
       assert_equal(str, arr[i])
       str = tok.next
       assert_equal(str, arr[i])
-    } 
+    }
+  end
+  
+  
+  def test_combine_tokens
+    tok = Tokenizer.new("test.as")
+    tok.combine_tokens
     
+    assert( tok.buffer[6] == ["LDA", "$40,LABEL"] )
+    assert( tok.buffer[7] == ["LDA", "$40,LABEL"] )
+    assert( tok.buffer[8] == ["error,"] )
   end
 
 end #class TestTokenizer < Test::Unit::TestCase

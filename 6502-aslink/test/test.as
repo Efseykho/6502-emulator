@@ -4,4 +4,8 @@
 break: ;
 break: 
 
+LDA $40  ,  LABEL
+LDA $40,  LABEL
+, error
+
           

@@ -19,6 +19,8 @@ class Tokenizer
       end
     }
     
+    combine_tokens
+    
     #initial step
     @curr_line = -1
     @avail = get_next #is there data available to be read
@@ -93,7 +95,41 @@ class Tokenizer
     ret
   end
   
-    #PRIVATE
+  #some assemblers allow looser token syntax
+  #ex: $40,X == $40, X == $40 , X
+  #we'll combine latter 2 forms into former form
+  #we wont deal with case like: $40 ,X - that's just stupid!
+  def combine_tokens
+    #first, get rid of tokens of form ",", they get combined to token to left of them
+    @buffer.each{ |i| #each element is an array 
+      next if i == nil
+    
+      i.each_index{ |j| #each element here is a token
+        if i[j] == "," and i[j-1] != nil and i[j+1]  != nil
+          i[j-1] =  i[j-1] + "," 
+          i.delete_at(j)
+          redo
+        end
+      }
+    }
+    
+    #next, combine form "A," , "B" into "A,B"
+    @buffer.each{ |i| #each element is an array 
+      next if i == nil
+    
+      i.each_index{ |j| #each element here is a token
+        if i[j].size > 1 and i[j][-1] == 44 and i[j+1]  != nil #44 == ","
+          i[j] =  i[j] + i[j+1]
+          i.delete_at(j+1)
+          redo
+        end
+      }
+    }   
+    
+    
+  end
+  
+  #PRIVATE
   #this throws out current line and attempts to
   #load in next non-empty lie
   #returns true if there exists more to read (in which case @curr_line set to it)
