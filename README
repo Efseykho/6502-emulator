@@ -1,6 +1,6 @@
 This is a collection of tools and utilities to emulate an Atari system.
 The ultimate goal here is to implement a full-on atari emulator to run
-on a fuzebox (http://ladyada.net/make/fuzebox/index.html).
+on a fuzebox ( http://ladyada.net/make/fuzebox/index.html ).
 
 Each folder below here is a seperate project.
 There's a README in each project below
@@ -24,3 +24,8 @@ First commit to newly refactored directory
 
 04/13/09
 Checked in base skel for 6502 assembler. Currently, it cant assemble anything.
+
+05/06/09
+Finished 6502 assembler/linker. All basic instr/gotos are compileable. 
+Implemented first necessary macro - DCB. Added a few examples of
+progs I can compile to the /progs dir.
