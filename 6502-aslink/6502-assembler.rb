@@ -6,11 +6,14 @@ end
 require "tokenizer.rb"
 require "gen_opcode.rb"
 
+
 class InstrBase
   attr_accessor :instr_type #type of instruction, ex: Comment, Instr, etc
+  attr_accessor :addr #memor addr of start of instr
   
   def initialize
     @instr_type = UNINITIALIZED
+    @addr = UNINITIALIZED
   end
 
   #define our symbology types
@@ -18,7 +21,8 @@ class InstrBase
   COMMENT = 1 #comment type
   OPCODE = 2 #opcode type
   LABEL_HOME = 3 #label home type
-  LABEL_GOTO = 3 #label goto type
+  LABEL_GOTO = 4 #label goto type
+  MACRO = 5 #such macros like dcb, etc
   
 end #class InstrBase
 
@@ -81,6 +85,7 @@ class Instr < InstrBase
   attr_accessor :sym_name #symbolic name, ex: LDA, STA, etc
   attr_accessor :args #arguments this opcode takes
   attr_accessor :opcode #hex-opcode of this instr
+  attr_accessor :args_len #length of arguments to this instr, either {0,1,2}
 
   #default initializer to invalid opcode
   def initialize
@@ -89,6 +94,7 @@ class Instr < InstrBase
       @sym_name = UNINITIALIZED
       @args = UNINITIALIZED
       @opcode = UNINITIALIZED
+      @args_len = 0
   end
     
   def to_s
@@ -99,6 +105,7 @@ class Instr < InstrBase
       str +=  "[#{@args.to_s}]"
     end
     
+    str += " addr=#{@addr}" if @addr != UNINITIALIZED
     str
   end
   def print
@@ -106,6 +113,35 @@ class Instr < InstrBase
   end
   
 end #class Instr
+
+#implements any simple macros we need
+class Macro < InstrBase
+  attr_accessor :sym_name #symbolic name, ex: dcb, etc
+  attr_accessor :args #arguments this macro takes
+  
+  #default initializer
+  def initialize
+      @instr_type = MACRO
+      @sym_name = UNINITIALIZED
+      @args = UNINITIALIZED
+      
+      @addr = UNINITIALIZED
+  end
+    
+  def to_s
+    str = "Macro #{@sym_name.to_s}"
+    if @args != UNINITIALIZED
+      str += ", args="
+      str +=  "[#{@args.join(",")}]"
+    end
+    
+    str += " addr=#{@addr}" if @addr != UNINITIALIZED
+    str
+  end
+  def print
+    printf "#{to_s}\n"
+  end
+end #class Macro
 
 
 class Assembler
@@ -352,6 +388,7 @@ class Assembler
     return [ INDIRECT, 2, nil, ret ] if ret 
   end
   
+  
   #figures out which memory access we've got
   #checks any and all labels to make sure they're registered before use
   def get_unified_mem_access(tok)
@@ -366,7 +403,7 @@ class Assembler
 
   arr_mem.each{ |i|
     #invoke each mem test method in turn, figure out if one of them passed
-    ret = send(i.to_sym, tok)
+    ret = send(i.to_sym, String.new(tok))
     if ret != nil
       p "found valid instr-mode: #{ret}"
       return ret
@@ -379,7 +416,7 @@ class Assembler
   def assemble( filename = "sample.as" )
     @instr= Array.new
     @def_labels = Hash.new
-    @undef_labels = Hash.new
+    #@undef_labels = Hash.new
     @tokenizer = Tokenizer.new(filename)
     
     while @tokenizer.has_more? do
@@ -402,6 +439,22 @@ class Assembler
         
         #register label
         @def_labels[label.label_name] = [@tokenizer.curr_line, InstrBase::UNINITIALIZED]
+      elsif (tok.downcase == "dcb") #found dcb macro
+        str = @tokenizer.next
+        raise "No input found for DCB macro" if str==nil
+        str = str.split(",")
+        
+        m = Macro.new
+        m.args = Array.new
+        m.sym_name = "dcb"
+        
+        str.each{ |i|
+          raise "Invalid input to dcb macro found: #{i}" if ! is_8bit_number?(i)
+          m.args.push( is_8bit_number?(i) )
+        }
+        
+        printf "created dcb macro #{m}"
+        @instr.push(m)
       elsif ( @instr_set.has_key?(tok.upcase) )
         printf "found key #{tok} and val #{@instr_set[tok.upcase]}\n"
         
@@ -447,10 +500,13 @@ class Assembler
           if ret[3].respond_to?(:div) 
             raise "Instr #{tok} does not have addressing mode=#{ret[0]} found at line=#{@tokenizer.curr_line}" if @instr_set[tok.upcase][ret[0]] == nil
             
+            #p "**************:"
+            
             instr = Instr.new
             instr.sym_name = tok.upcase
             instr.opcode = @instr_set[tok.upcase][ret[0]]
-            instr.args = t 
+            instr.args = ret[3]
+            instr.args_len = ret[1]
             @instr.push( instr )
             
             @tokenizer.next
@@ -479,13 +535,16 @@ class Assembler
           #sidenote: if op has RELATIVE addressing, thats its only instr mode possible
           if ret[0] == ABSOLUTE and @instr_set[tok.upcase][RELATIVE] != nil
             instr.opcode = @instr_set[tok.upcase][RELATIVE] 
+            instr.args_len = 1 #rellative addressing labels occupy 1 byte
             printf "found relative addressing #{@instr_set[tok.upcase][RELATIVE] }\n"
           else
             instr.opcode = @instr_set[tok.upcase][ret[0]] 
+            instr.args_len = ret[1]
           end
           
           instr.args =LabelGotoInstr.new
           instr.args.label_addr = ret[3]
+          
           @instr.push( instr )
             
           @tokenizer.next
@@ -504,9 +563,72 @@ class Assembler
   #attempts to link 
   #currently we can compile code that has calls to undefined labels
   #we must catch it in the linking
-  def emit_instr(base_addr = 0x0200 )
+  def emit_instr(base_addr = 0x0600, fname = "output" )
     #by convention, stack is 0x0100-0x01FF
     #so we try tolay out our program starting from 0x0200
+    #
+    #errr.... turns out 6502asm.com starts userspace addrs at 0x0600
+    
+    #2-pass compilation:
+    #first pass, we lay out all the instr except for goto-labels
+    addr = base_addr
+    
+    @instr.each { |i|
+      case i.instr_type
+        when InstrBase::OPCODE
+          #p "opcode #{i}"
+          i.addr = addr
+          
+          #increment by number of instructions used: 1 for opcode + 1-2 for args
+          addr = addr + 1 + i.args_len
+        when InstrBase::LABEL_HOME
+          #p "label #{i}"
+          i.addr = addr
+          i.label_addr = addr
+          
+          #also, need to update @def_labels structure for lookups later
+          @def_labels[i.label_name][1] = addr   
+        when InstrBase::MACRO
+          #p "macro #{i.to_s}"       
+          # set addr of macro to starting addr
+          i.addr = addr
+          
+          # increment addr by length of macro's args
+          addr = addr + i.args.length
+          
+          #actual opcode is captured in @args of macro, get it later
+        else
+          #p "else #{i.instr_type}"
+      end
+    }
+    
+    #second pass, we link in all the goto-labels
+    @instr.each { |i|
+      case i.instr_type
+        when InstrBase::OPCODE
+          if i.args.respond_to?(:instr_type)
+            if i.args.instr_type == InstrBase::LABEL_GOTO
+              
+              #if we have a  relative addr, args_len = 1
+              #add signed 1byte disp to instr. counter
+              if i.args_len == 1
+                disp =@def_labels[i.args.label_addr][1] - (i.addr + 2)
+                i.args = disp
+              else #replace label goto with mapped addr to it
+                 i.args = @def_labels[i.args.label_addr][1]
+              end
+            
+            else
+              #raise exception here
+              raise "Unknown opcode arg-type \"#{i.args}\" found"
+            end
+          end
+        else
+          #p "else #{i.instr_type}"          
+      end
+    }
+        
+        
     
   end
   
@@ -523,15 +645,62 @@ class Assembler
   end
 
   
-  
-  #emits user-readable output to check
-  def debug_emit
-    file = File.new("debug.output", "w+")
+  #emits assembly
+  #ASSUMPTION: all has been linked before this got called
+  #this should be private
+  def emit_assembly(fname = "output")
+    out_arr = Array.new
+    pack_str = String.new
+    
     @instr.each{|i|
-      file.puts "instr: #{i.to_s}"
+      if i.instr_type == InstrBase::OPCODE
+        out_arr.push(i.opcode.to_i(16))
+        pack_str = pack_str + "C"
+        next if i.args_len == 0
+        
+        if i.args_len == 1
+          out_arr.push(i.args) 
+          pack_str = pack_str + "C"
+        elsif i.args_len == 2
+          #gotta remember to put it in correct order, i guess
+          #ex: $31F6 -> F6,31, low-order byte is in lower memory, high-order byte in high memory
+          out_arr.push(i.args) if 
+          pack_str = pack_str +"S"
+        else
+          raise "Invalid opcode args found #{i}"
+        end
+
+      elsif i.instr_type == InstrBase::MACRO
+        raise "Unknown macro found #{i.to_s}" if i.sym_name != "dcb" 
+        #currently we only recognize dcb macro
+        
+        #simply emit a series of bytes as specified in @args of dcb macro
+        i.args.each{ |i|
+          out_arr.push(i)
+          pack_str = pack_str + "C"
+        }
+      end # if i.instr_type == InstrBase::OPCODE
     }
     
-    file.close
+    p "#{pack_str}"
+    p "#{out_arr}"
+  
+    pack_str = out_arr.pack(pack_str)
+    
+    file = File.new(fname+".assl", "wb")
+    file.puts(pack_str)
+    file.close   
+    
+    out_arr
+  end
+  
+  #emits user-readable output to check
+  def debug_emit(fname = "output")
+    file = File.new(fname+".debug", "w+")
+    @instr.each{|i|
+      file.puts "#{i.to_s}"
+    }
+    file.close    
   end
   
 end #class Assembler
