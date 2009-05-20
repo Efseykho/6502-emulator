@@ -42,7 +42,7 @@
         P = P | 0x40
 #define NEG_SET(P) \
         P = P | 0x80
-	
+
 //define macros to clear P register
 /* Define macros to set the P-register */
 #define CARRY_CLEAR(P) \
@@ -59,19 +59,19 @@
         P = P & 0xBF
 #define NEG_CLEAR(P) \
         P = P & 0x7F
-	
+
 
 // The P register is composed of following flags:
 // s - sign flag (1=7th bit set)
-// v - overflow flag 
+// v - overflow flag
 // d - not used/decimal mode flag
 // i - break status (1=break used)
 // z - zero flag (1=zero value, 0=non-zero value)
 // c - carry flag
 //
 //Note: I dont understand the OVERFLOW -  v bit
-//here's what 6502.org has to say about it: 
-//  This is where V comes in. V indicates whether the result of an addition or subraction is outside the 
+//here's what 6502.org has to say about it:
+//  This is where V comes in. V indicates whether the result of an addition or subraction is outside the
 //  range -128 to 127, i.e. whether there is a twos complement overflow.
 //  http://www.6502.org/tutorials/vflag.html
 //FOR SBC/ADC, we'll go with that.
@@ -85,14 +85,14 @@ For example, if memory location $1000 contains the (hexadecimal) value $AB, then
 #define TEST_AND_SET_ZERO(P,VAL) \
 		  if ( VAL == 0x00) ZERO_SET(P); \
 		  else  ZERO_CLEAR(P);
-		  
+
 #define TEST_AND_SET_NEG(P,VAL) \
 		   if ( VAL & 0x80 ) NEG_SET(P); \
 			else NEG_CLEAR(P);
-			
+
 //#define TEST_AND_SET_CARRY(P,SHORT) \
 //		   if ( SHORT > 0xFF || ) CARRY_SET(P); \
-//			else CARRY_CLEAR(P);	
+//			else CARRY_CLEAR(P);
 //Here's what 6502.org has to say about the carry flag:
 //http://www.6502.org/tutorials/vflag.html
 /*
@@ -100,12 +100,12 @@ For example, if memory location $1000 contains the (hexadecimal) value $AB, then
   When the addition result is greater than 255, the carry is set.
   When the subtraction result is 0 to 255, the carry is set.
   When the subtraction result is less than 0, the carry is cleared.
- *  
+ *
  *       C  =  CARRY. Set if the add produced a carry, or if the subtraction
- *            produced a borrow.  Also holds bits after a logical shift.  
- *       http://www.geocities.com/oneelkruns/asm1step.html 
- **/ 
- 
+ *            produced a borrow.  Also holds bits after a logical shift.
+ *       http://www.geocities.com/oneelkruns/asm1step.html
+ **/
+
 #define TEST_AND_SET_CARRY_ADDITION(P,CH1,CH2) \
 			if ( (int)((int)CH1 + (int)CH2) > 0xFF ) CARRY_SET(P); \
 			else CARRY_CLEAR(P);
@@ -131,13 +131,13 @@ For example, if memory location $1000 contains the (hexadecimal) value $AB, then
 			OVERFLOW_SET(P) ; \
 		else OVERFLOW_CLEAR(P) ; \
 	} \
-	else OVERFLOW_CLEAR(P) 
-	
+	else OVERFLOW_CLEAR(P)
+
 	//printf("here0\n"); \
 	//    printf("res0 %d\n",(signed short)(signed char)CH1 ); \
 	//	 printf("res1 %d\n",(signed short)(signed char)CH2 ); \
 	//	 printf("res2 %d\n",(signed char)CH1 - (signed char)CH2 ); \
-	
+
 #define TEST_AND_SET_V_OVERFLOW_SUBTRACTION(P,CH1,CH2) \
 	if ( ((int)NEG_GET(CH1)) != ((int)NEG_GET(CH2)) ) \
 	{   \
@@ -145,9 +145,9 @@ For example, if memory location $1000 contains the (hexadecimal) value $AB, then
 			OVERFLOW_SET(P); \
 		else OVERFLOW_CLEAR(P) ; \
 	} \
-	else OVERFLOW_CLEAR(P) 
+	else OVERFLOW_CLEAR(P)
 
-			
+
 //use this macro for BIT ops
 #define TEST_SIXTH_MEMORY_BIT(P,MEM_LOC) \
 			if ( OVERFLOW_GET(MEM_LOC) ) OVERFLOW_SET(P); \
@@ -156,18 +156,29 @@ For example, if memory location $1000 contains the (hexadecimal) value $AB, then
 //this is to mark those instructions that access memory and do not go through the read/write_mem
 //interface. in the future, these might have to be changed
 #define STUB_OUT_MEM_ACCESS_IFACES 1
-#ifndef STUB_OUT_MEM_ACCESS_IFACES 
-	assert(0); //this fails because its not going through read/write_mem iface 
+#ifndef STUB_OUT_MEM_ACCESS_IFACES
+	assert(0); //this fails because its not going through read/write_mem iface
 #endif
-	
+
 
 //this is to mark those instructions that deal with interrups
 //in the future, these might have to be changed
 #define STUB_OUT_INTERRUPTS_IFACES 1
-#ifndef STUB_OUT_INTERRUPTS_IFACES 
+#ifndef STUB_OUT_INTERRUPTS_IFACES
 	assert(0); //this fails because its not doing the interrupts correctly
 #endif
-	
+
+
+//what defines a memory region
+//for mem-mapped io services
+typedef struct {
+	unsigned short low;
+	unsigned short high;
+}mem_region;
+
+
+
+
 
 typedef struct {
         unsigned char Acc; //accumulator
@@ -177,11 +188,19 @@ typedef struct {
         unsigned char S; //stack pointer
         unsigned short PC; //program counter
         unsigned char Memory[MEMORY_SIZE];
-		
-		  #ifdef ALLOW_MAX_INSTR_COUNT
-		    unsigned int instr_count;  //how many instructions we executed
-		  #endif
-		
+
+		#ifdef ALLOW_MAX_INSTR_COUNT
+		  unsigned int instr_count;  //how many instructions we executed
+		#endif
+
+		#ifdef ENABLE_MEM_MAP_DEVICES
+		  void (*mem_write_listeners[MAX_MEMORY_WRITER_LISTENERS])(unsigned short);
+		  mem_region regions[MAX_MEMORY_WRITER_LISTENERS]; //where we store the corresponding mem_region
+		  int num_wlisteners; //number of thusly registered listeners
+
+		#endif
+
+
 }em6502;
 
 /**************************************
@@ -211,10 +230,21 @@ void load_program( em6502 *, void *, size_t, unsigned int);
  * Inputs:  em6502 * - the 6502 object to execute
  *				unsigned int - max number of instructions to execute, -1 for all
  * Outputs: None
- * Function: executes the previosuly loaded program 
+ * Function: executes the previosuly loaded program
  *
 ***************************************/
 void run_program( em6502 *, unsigned int );
 
+
+/**************************************
+ * Name:  add_memory_write_listener
+ * Inputs:  em6502 * - the 6502 object to execute
+ * 			mem_region - memory region to watch
+ *			void (*cb_mem_write)(unsigned int) - callback function ptr to invoke
+ * Outputs: None
+ * Function: registers a memory write listener at given memory region
+ *
+***************************************/
+void add_memory_write_listener( em6502 *, mem_region, void (*cb_mem_write)(unsigned short) );
 
 #endif  /* EM_6502_H */
