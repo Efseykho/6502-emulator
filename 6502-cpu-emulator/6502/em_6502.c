@@ -1077,7 +1077,8 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 
 				ch1 = emu->Memory[ZP_DIRECT_ACCESS] + 1;
 
-				emu->Memory[ZP_DIRECT_ACCESS] = ch1;
+				write_mem(emu,ZP_DIRECT_ACCESS,ch1);
+				//emu->Memory[ZP_DIRECT_ACCESS] = ch1;
 
 				emu->PC+=2;
 				//affects s,z flags
@@ -1090,7 +1091,9 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 
 				ch1 = emu->Memory[ZP_INDEXED_X_ACCESS] + 1;
 
-				emu->Memory[ZP_INDEXED_X_ACCESS] = ch1;
+				//emu->Memory[ZP_INDEXED_X_ACCESS] = ch1;
+				write_mem(emu,ZP_INDEXED_X_ACCESS,ch1);
+
 				emu->PC+=2;
 				//affects s,z flags
 				TEST_AND_SET_ZERO(emu->P, ch1) ;
@@ -1102,7 +1105,9 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 
 				ch1 = emu->Memory[EXTENDED_DIRECT_ACCESS] + 1;
 
-				emu->Memory[EXTENDED_DIRECT_ACCESS] = ch1;
+				//emu->Memory[EXTENDED_DIRECT_ACCESS] = ch1;
+				write_mem(emu,EXTENDED_DIRECT_ACCESS,ch1);
+
 				emu->PC+=3;
 				//affects s,z flags
 				TEST_AND_SET_ZERO(emu->P, ch1) ;
@@ -1114,7 +1119,9 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 
 				ch1 = emu->Memory[ABSOLUTE_INDEXED_X_ACCESS] + 1;
 
-				emu->Memory[ABSOLUTE_INDEXED_X_ACCESS] = ch1;
+				//emu->Memory[ABSOLUTE_INDEXED_X_ACCESS] = ch1;
+				write_mem(emu,ABSOLUTE_INDEXED_X_ACCESS,ch1);
+
 				emu->PC+=3;
 				//affects s,z flags
 				TEST_AND_SET_ZERO(emu->P, ch1) ;
@@ -1128,7 +1135,9 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 
 				ch1 = emu->Memory[ZP_DIRECT_ACCESS] - 1;
 
-				emu->Memory[ZP_DIRECT_ACCESS] = ch1;
+				//emu->Memory[ZP_DIRECT_ACCESS] = ch1;
+				write_mem(emu,ZP_DIRECT_ACCESS,ch1);
+
 				emu->PC+=2;
 				//affects s,z flags
 				TEST_AND_SET_ZERO(emu->P, ch1) ;
@@ -1140,7 +1149,9 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 
 				ch1 = emu->Memory[ZP_INDEXED_X_ACCESS] - 1;
 
-				emu->Memory[ZP_INDEXED_X_ACCESS] = ch1;
+				//emu->Memory[ZP_INDEXED_X_ACCESS] = ch1;
+				write_mem(emu,ZP_INDEXED_X_ACCESS,ch1);
+
 				emu->PC+=2;
 				//affects s,z flags
 				TEST_AND_SET_ZERO(emu->P, ch1) ;
@@ -1152,7 +1163,9 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 
 				ch1 = emu->Memory[EXTENDED_DIRECT_ACCESS] - 1;
 
-				emu->Memory[EXTENDED_DIRECT_ACCESS] = ch1;
+				//emu->Memory[EXTENDED_DIRECT_ACCESS] = ch1;
+				write_mem(emu,EXTENDED_DIRECT_ACCESS,ch1);
+
 				emu->PC+=3;
 				//affects s,z flags
 				TEST_AND_SET_ZERO(emu->P, ch1) ;
@@ -1164,7 +1177,9 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 
 				ch1 = emu->Memory[ABSOLUTE_INDEXED_X_ACCESS] - 1;
 
-				emu->Memory[ABSOLUTE_INDEXED_X_ACCESS] = ch1;
+				//emu->Memory[ABSOLUTE_INDEXED_X_ACCESS] = ch1;
+				write_mem(emu,ABSOLUTE_INDEXED_X_ACCESS,ch1);
+
 				emu->PC+=3;
 				//affects s,z flags
 				TEST_AND_SET_ZERO(emu->P, ch1) ;
@@ -1256,7 +1271,7 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 
 			//***********************>>>ROL INSTRUCTIONS<<<*************************
 			case 0x2A: //ROL addr : addr, sets s,z flags, rotated through c flag
-				STUB_OUT_MEM_ACCESS_IFACES ;
+				//STUB_OUT_MEM_ACCESS_IFACES ;
 
 				ch1 = emu->Acc;
 				ch2 = (((int)(NEG_GET(emu->P))) == 0x00)?0:1;
@@ -1301,7 +1316,8 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 				else CARRY_SET(ch1);
 
 				//now move back to memory
-				emu->Memory[ZP_DIRECT_ACCESS] = ch1;
+				//emu->Memory[ZP_DIRECT_ACCESS] = ch1;
+				write_mem(emu,ZP_DIRECT_ACCESS,ch1);
 
 				emu->PC+=2;
 
@@ -1328,7 +1344,8 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 				else CARRY_SET(ch1);
 
 				//now move back to memory
-				emu->Memory[ZP_INDEXED_X_ACCESS] = ch1;
+				//emu->Memory[ZP_INDEXED_X_ACCESS] = ch1;
+				write_mem(emu,ZP_INDEXED_X_ACCESS,ch1);
 
 				emu->PC+=2;
 
@@ -1355,7 +1372,9 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 				else CARRY_SET(ch1);
 
 				//now move back to memory
-				emu->Memory[EXTENDED_DIRECT_ACCESS] = ch1;
+				//emu->Memory[EXTENDED_DIRECT_ACCESS] = ch1;
+				write_mem(emu,EXTENDED_DIRECT_ACCESS,ch1);
+
 
 				emu->PC+=3;
 
@@ -1382,7 +1401,8 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 				else CARRY_SET(ch1);
 
 				//now move back to memory
-				emu->Memory[ABSOLUTE_INDEXED_X_ACCESS] = ch1;
+				//emu->Memory[ABSOLUTE_INDEXED_X_ACCESS] = ch1;
+				write_mem(emu,ABSOLUTE_INDEXED_X_ACCESS,ch1);
 
 				emu->PC+=3;
 
@@ -1439,7 +1459,8 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 				else NEG_SET(ch1);
 
 				//now move back to memory
-				emu->Memory[ZP_DIRECT_ACCESS] = ch1;
+				//emu->Memory[ZP_DIRECT_ACCESS] = ch1;
+				write_mem(emu,ZP_DIRECT_ACCESS,ch1);
 
 				emu->PC+=2;
 
@@ -1466,7 +1487,8 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 				else NEG_SET(ch1);
 
 				//now move back to memory
-				emu->Memory[ZP_INDEXED_X_ACCESS] = ch1;
+				//emu->Memory[ZP_INDEXED_X_ACCESS] = ch1;
+				write_mem(emu,ZP_INDEXED_X_ACCESS,ch1);
 
 				emu->PC+=2;
 
@@ -1494,7 +1516,8 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 				else NEG_SET(ch1);
 
 				//now move back to memory
-				emu->Memory[EXTENDED_DIRECT_ACCESS] = ch1;
+				//emu->Memory[EXTENDED_DIRECT_ACCESS] = ch1;
+				write_mem(emu,EXTENDED_DIRECT_ACCESS,ch1);
 
 				emu->PC+=3;
 
@@ -1522,7 +1545,8 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 				else NEG_SET(ch1);
 
 				//now move back to memory
-				emu->Memory[ABSOLUTE_INDEXED_X_ACCESS] = ch1;
+				//emu->Memory[ABSOLUTE_INDEXED_X_ACCESS] = ch1;
+				write_mem(emu,ABSOLUTE_INDEXED_X_ACCESS,ch1);
 
 				emu->PC+=3;
 
@@ -1534,7 +1558,7 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 
 			//***********************>>>ASL INSTRUCTIONS<<<*************************
 			case 0x0A: //ASL addr : addr, sets n,z flags, shifts to c flag
-				STUB_OUT_MEM_ACCESS_IFACES ;
+				//STUB_OUT_MEM_ACCESS_IFACES ;
 
 				ch1 = emu->Acc;
 				ch2 = (((int)(NEG_GET(ch1))) == 0x00)?0:1;
@@ -1572,7 +1596,8 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 				else CARRY_SET(emu->P);
 
 				//now move back to memory
-				emu->Memory[ZP_DIRECT_ACCESS] = ch1;
+				//emu->Memory[ZP_DIRECT_ACCESS] = ch1;
+				write_mem(emu,ZP_DIRECT_ACCESS,ch1);
 
 				emu->PC+=2;
 
@@ -1596,7 +1621,8 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 				else CARRY_SET(emu->P);
 
 				//now move back to memory
-				emu->Memory[ZP_INDEXED_X_ACCESS] = ch1;
+				//emu->Memory[ZP_INDEXED_X_ACCESS] = ch1;
+				write_mem(emu,ZP_INDEXED_X_ACCESS,ch1);
 
 				emu->PC+=2;
 
@@ -1620,7 +1646,8 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 				else CARRY_SET(emu->P);
 
 				//now move back to memory
-				emu->Memory[EXTENDED_DIRECT_ACCESS] = ch1;
+				//emu->Memory[EXTENDED_DIRECT_ACCESS] = ch1;
+				write_mem(emu,EXTENDED_DIRECT_ACCESS,ch1);
 
 				emu->PC+=3;
 
@@ -1644,7 +1671,8 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 				else CARRY_SET(emu->P);
 
 				//now move back to memory
-				emu->Memory[ABSOLUTE_INDEXED_X_ACCESS] = ch1;
+				//emu->Memory[ABSOLUTE_INDEXED_X_ACCESS] = ch1;
+				write_mem(emu,ABSOLUTE_INDEXED_X_ACCESS,ch1);
 
 				emu->PC+=3;
 
@@ -1656,7 +1684,7 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 
 			//***********************>>>LSR INSTRUCTIONS<<<*************************
 			case 0x4A: //LSR addr : addr, sets z flag, clears n flag, shifts to c flag
-				STUB_OUT_MEM_ACCESS_IFACES ;
+				//STUB_OUT_MEM_ACCESS_IFACES ;
 
 				ch1 = emu->Acc;
 				ch2 = (((int)(CARRY_GET(ch1))) == 0x00)?0:1;
@@ -1694,7 +1722,8 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 				else CARRY_SET(emu->P);
 
 				//now move back to memory
-				emu->Memory[ZP_DIRECT_ACCESS] = ch1;
+				//emu->Memory[ZP_DIRECT_ACCESS] = ch1;
+				write_mem(emu,ZP_DIRECT_ACCESS,ch1);
 
 				emu->PC+=2;
 
@@ -1718,7 +1747,8 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 				else CARRY_SET(emu->P);
 
 				//now move back to memory
-				emu->Memory[ZP_INDEXED_X_ACCESS] = ch1;
+				//emu->Memory[ZP_INDEXED_X_ACCESS] = ch1;
+				write_mem(emu,ZP_INDEXED_X_ACCESS,ch1);
 
 				emu->PC+=2;
 
@@ -1742,7 +1772,8 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 				else CARRY_SET(emu->P);
 
 				//now move back to memory
-				emu->Memory[EXTENDED_DIRECT_ACCESS] = ch1;
+				//emu->Memory[EXTENDED_DIRECT_ACCESS] = ch1;
+				write_mem(emu,EXTENDED_DIRECT_ACCESS,ch1);
 
 				emu->PC+=3;
 
@@ -1766,7 +1797,8 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 				else CARRY_SET(emu->P);
 
 				//now move back to memory
-				emu->Memory[ABSOLUTE_INDEXED_X_ACCESS] = ch1;
+				//emu->Memory[ABSOLUTE_INDEXED_X_ACCESS] = ch1;
+				write_mem(emu,ABSOLUTE_INDEXED_X_ACCESS,ch1);
 
 				emu->PC+=3;
 
@@ -1979,7 +2011,9 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 			case 0x48:  //PHA : [stack]<- Acc, stack<- stack - 1
 				STUB_OUT_MEM_ACCESS_IFACES ;
 
-				emu->Memory[ generate_addr(emu->S, STACK_HIGH_ADDR) ] = emu->Acc;
+				//emu->Memory[ generate_addr(emu->S, STACK_HIGH_ADDR) ] = emu->Acc;
+				write_mem(emu,generate_addr(emu->S, STACK_HIGH_ADDR),emu->Acc);
+
 				emu->S-=1; //remember that stack grows down
 
 				emu->PC+=1;
@@ -1988,7 +2022,7 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 
 			//***********************>>>PLA INSTRUCTIONS<<<*************************
 			case 0x68:  //PLA : Acc<- [stack], stack<- stack - 1
-				STUB_OUT_MEM_ACCESS_IFACES ;
+				//STUB_OUT_MEM_ACCESS_IFACES ;
 
 				//first increment stack
 				emu->S+=1; //remember that stack grows down
@@ -2005,7 +2039,9 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 			case 0x08:  //PHP : [stack]<- P, stack<- stack - 1
 				STUB_OUT_MEM_ACCESS_IFACES ;
 
-				emu->Memory[ generate_addr(emu->S, STACK_HIGH_ADDR) ] = emu->P;
+				//emu->Memory[ generate_addr(emu->S, STACK_HIGH_ADDR) ] = emu->P;
+				write_mem(emu,generate_addr(emu->S, STACK_HIGH_ADDR),emu->P);
+
 				emu->S-=1; //remember that stack grows down
 
 				emu->PC+=1;
@@ -2014,12 +2050,12 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 
 			//***********************>>>PLP INSTRUCTIONS<<<*************************
 			case 0x28:  //PLP : P<- [stack], stack<- stack - 1
-				STUB_OUT_MEM_ACCESS_IFACES ;
+				//STUB_OUT_MEM_ACCESS_IFACES ;
 
 				//first increment stack
 				emu->S+=1; //remember that stack grows down
 
-				emu->P =emu->Memory[ generate_addr(emu->S, STACK_HIGH_ADDR) ];
+				emu->P = emu->Memory[ generate_addr(emu->S, STACK_HIGH_ADDR) ];
 
 				emu->PC+=1;
 				//affects all flags, they all get replaced with new values
@@ -2052,19 +2088,24 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 			//***********************>>>BRK INSTRUCTIONS<<<*************************
 			case 0x00: //BRK : programmed interrupt
 				STUB_OUT_INTERRUPTS_IFACES ;
+				STUB_OUT_MEM_ACCESS_IFACES ;
 
 				//increment PC by 2, push onto stack
 				//observe that the 2nd byte of the instr is the interrupt signature
-				emu->Memory[ generate_addr(emu->S, STACK_HIGH_ADDR) ] = ((emu->PC)+2) >> 8;
+
+				//emu->Memory[ generate_addr(emu->S, STACK_HIGH_ADDR) ] = ((emu->PC)+2) >> 8;
+				write_mem(emu,generate_addr(emu->S, STACK_HIGH_ADDR),((emu->PC)+2) >> 8);
 				emu->S-=1;
 
-				emu->Memory[ generate_addr(emu->S, STACK_HIGH_ADDR) ] = ((emu->PC)+2);
+				//emu->Memory[ generate_addr(emu->S, STACK_HIGH_ADDR) ] = ((emu->PC)+2);
+				write_mem(emu,generate_addr(emu->S, STACK_HIGH_ADDR),((emu->PC)+2));
 				emu->S-=1;
 
 				//set the break flag and push onto stack
 				BRK_SET(emu->P);
 
-				emu->Memory[ generate_addr(emu->S, STACK_HIGH_ADDR) ] = emu->P;
+				//emu->Memory[ generate_addr(emu->S, STACK_HIGH_ADDR) ] = emu->P;
+				write_mem(emu,generate_addr(emu->S, STACK_HIGH_ADDR),emu->P);
 				emu->S-=1;
 
 				//disable interrupts
@@ -2095,7 +2136,7 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 
 				//pull old P/status register from stack
 				emu->S+=1;
-				emu->P =emu->Memory[ generate_addr(emu->S, STACK_HIGH_ADDR) ];
+				emu->P = emu->Memory[ generate_addr(emu->S, STACK_HIGH_ADDR) ];
 
 				//pull 2bytes that make up our PC from stack
 				emu->S+=1;
@@ -2113,16 +2154,19 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 			//***********************>>>JSR INSTRUCTIONS<<<*************************
 			case 0x20: //JSR addr16 : jump to subroutine
 				STUB_OUT_INTERRUPTS_IFACES ;
+				STUB_OUT_MEM_ACCESS_IFACES ;
 
 				//implemented same as BRK except the addr of the isr is in bytes 2,3 of the instr
 				//also, no interrupts are handled in case of subroutine calls
 
 				//increment PC by 2, push onto stack
 				//PC will point to 3rd byte of JSR instr
-				emu->Memory[ generate_addr(emu->S, STACK_HIGH_ADDR) ] = ((emu->PC)+2) >> 8;
+				//emu->Memory[ generate_addr(emu->S, STACK_HIGH_ADDR) ] = ((emu->PC)+2) >> 8;
+				write_mem(emu,generate_addr(emu->S, STACK_HIGH_ADDR),((emu->PC)+2) >> 8);
 				emu->S-=1;
 
-				emu->Memory[ generate_addr(emu->S, STACK_HIGH_ADDR) ] = ((emu->PC)+2);
+				//emu->Memory[ generate_addr(emu->S, STACK_HIGH_ADDR) ] = ((emu->PC)+2);
+				write_mem(emu,generate_addr(emu->S, STACK_HIGH_ADDR),((emu->PC)+2));
 				emu->S-=1;
 
 				emu->PC = generate_addr( GET_FIRST_ARG, GET_SECOND_ARG );

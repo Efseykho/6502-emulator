@@ -199,8 +199,6 @@ typedef struct {
 		  int num_wlisteners; //number of thusly registered listeners
 
 		#endif
-
-
 }em6502;
 
 /**************************************
