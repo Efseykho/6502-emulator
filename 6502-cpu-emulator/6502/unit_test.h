@@ -5,7 +5,7 @@
 void run_test_harness();
 
 //where we define if we run unit tests
-#define RUN_UNIT_TEST 1
+//#define RUN_UNIT_TEST 1
 
 
 #endif /* UNIT_TEST_H */

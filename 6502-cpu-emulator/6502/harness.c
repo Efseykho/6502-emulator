@@ -8,7 +8,8 @@
 #include <stdio.h>
 
 
-
+//for running unit tests
+//#define RUN_UNIT_TEST
 
 void *test_memory_listener(unsigned short addr)
 {
@@ -25,25 +26,24 @@ int main()
 	int i;
 	mem_region region;
 
-//    printf("sizeof(char) == %d\n", sizeof(char));
-//	  printf("sizeof(unsigned short) == %d\n", sizeof(unsigned short));
-//    printf("sizeof(int) == %d\n", sizeof(int));
-//    printf("sizeof(long) == %d\n", sizeof(long));
-//    printf("sizeof(long long) == %d\n", sizeof(long long));
+    printf("sizeof(char) == %d\n", sizeof(char));
+	  printf("sizeof(unsigned short) == %d\n", sizeof(unsigned short));
+    printf("sizeof(int) == %d\n", sizeof(int));
+    printf("sizeof(long) == %d\n", sizeof(long));
+    printf("sizeof(long long) == %d\n", sizeof(long long));
 
 
-//    #ifdef RUN_UNIT_TEST
-//       run_test_harness();
-//    #endif
+    #ifdef RUN_UNIT_TEST
+       run_test_harness();
+    #endif
 
 	//lets try to run our own compiled file - 'disco.as'
 	//as compiled by our asslink
-
 	initialize_em6502( &emulator);
+	create_simple_memory_map(&emulator);
 
 	pFile = fopen ("test/disco.as","rb");
 	//pFile = fopen ("test/noise.as","rb"); //noise crashes: tries to return from main
-
 	//pFile = fopen ("test/colors.as","rb");  //colors crashes; same as on 6502asm.com
 
 	if (pFile==NULL) { printf("Failed to open file"); exit(-1); }
@@ -70,24 +70,21 @@ int main()
 
 	free(memblock);
 
-	//one more thing:
-	//as per documentation on 6502asm.com, 0x00FF is the key-pressed
-	//and 0x00FE is a random number
-	//or '0' if none
-	//so lets set that manually to disable this thing - otherwise it'll always read 0xFF
-	emulator.Memory[15] = 0;
-	emulator.Memory[16] = 0;
+//	//one more thing:
+//	//as per documentation on 6502asm.com, 0x00FF is the key-pressed
+//	//and 0x00FE is a random number
+//	//or '0' if none
+//	//so lets set that manually to disable this thing - otherwise it'll always read 0xFF
+	write_mem(&emulator,15,0);
+	write_mem(&emulator,16,0);
 
 	//mem-mapped screen - set to all black=0x00 here
-	memset(&emulator.Memory[0x0200],0,sizeof(char)*1024);
+	memset(&emulator._memory[0x0200],0,sizeof(char)*1024);
 
-	//lets also register a test memory listener
-	region.low = 0x0200;
-	region.high = 0x0600;
-	add_memory_write_listener(&emulator,region, &test_memory_listener );
-
-	//write_mem(&emulator, 0x0300, 34);
-
+//	//lets also register a test memory listener
+//	region.low = 0x0200;
+//	region.high = 0x0600;
+//	add_memory_write_listener(&emulator,region, &test_memory_listener );
 
 //	while(1)
 //	{
@@ -96,6 +93,7 @@ int main()
 //	}
 
 	printf("Yes, success\n");
+
 
 
 	return 0;

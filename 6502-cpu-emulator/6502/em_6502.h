@@ -4,7 +4,7 @@
 #include <string.h>
 
 #include "definitions.h"
-
+#include "paging.h"
 
 
 /* Define macros to check the P-register  */
@@ -187,18 +187,15 @@ typedef struct {
         unsigned char P; //status/P register
         unsigned char S; //stack pointer
         unsigned short PC; //program counter
-        unsigned char Memory[MEMORY_SIZE];
+
+        //our paging-based memory model plugs in here
+        page_t *page_table[NUM_PAGES];
+        unsigned char *_memory; //dynamic memory into which page_table points
 
 		#ifdef ALLOW_MAX_INSTR_COUNT
 		  unsigned int instr_count;  //how many instructions we executed
 		#endif
 
-		#ifdef ENABLE_MEM_MAP_DEVICES
-		  void (*mem_write_listeners[MAX_MEMORY_WRITER_LISTENERS])(unsigned short);
-		  mem_region regions[MAX_MEMORY_WRITER_LISTENERS]; //where we store the corresponding mem_region
-		  int num_wlisteners; //number of thusly registered listeners
-
-		#endif
 }em6502;
 
 /**************************************
@@ -244,5 +241,19 @@ void run_program( em6502 *, unsigned int );
  *
 ***************************************/
 void add_memory_write_listener( em6502 *, mem_region, void (*cb_mem_write)(unsigned short) );
+
+
+
+/**************************************
+ * Name:  create_simple_memory_map
+ * Inputs:  em6502 * - the 6502 object to execute
+ * Outputs: None
+ * Function: creates the simplest memory map possible;
+ * 			 straight mapping with all pages marked as read-able
+ *
+***************************************/
+void create_simple_memory_map( em6502 * );
+
+
 
 #endif  /* EM_6502_H */

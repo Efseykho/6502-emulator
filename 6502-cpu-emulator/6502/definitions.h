@@ -25,10 +25,17 @@
 #define ALLOW_MAX_INSTR_COUNT 1
 
 //we want to have devices mapped into memory
-#define ENABLE_MEM_MAP_DEVICES 1
+//#define ENABLE_MEM_MAP_DEVICES 1
 
 //max of 5 memory mapped regions we're watching
 //arbitrary
 #define MAX_MEMORY_WRITER_LISTENERS 5
+
+
+//page size on 6502, in bytes
+#define PAGE_SIZE 256
+
+//number of pages
+#define NUM_PAGES 256
 
 #endif  /* DEFINITIONS_H */

@@ -8,6 +8,8 @@
 #include "em_6502.h"
 
 
+
+
 /*
  * Rules for when to use read_mem/write_mem functions:
  * 	The reason why we need them is for mem-mapped io. We have to trap
@@ -32,8 +34,20 @@
 ***************************************/
 inline unsigned char read_mem( em6502 *em, unsigned short addr )
 {
-	//currently, we're not using mem-mapped IO so we're fine using this
-	return em->Memory[addr];
+	//need to translate our addr to page in pagetable
+	//addr(0-255) goto page 0, addr (256-256+255) goto page 1, etc
+	page_t *page = em->page_table[addr / PAGE_SIZE];
+
+	//check that we have permissions to read it
+	assert(GET_READ(page->flag));
+
+	//if handler exists, invoke it for mode=READ
+	if ( page->cb_mem_listener != 0)
+	{
+		(* page->cb_mem_listener)(addr,page->data[addr % PAGE_SIZE],READ);
+	}
+
+	return page->data[addr % PAGE_SIZE];
 }
 
 /**************************************
@@ -47,28 +61,30 @@ inline unsigned char read_mem( em6502 *em, unsigned short addr )
 ***************************************/
 inline void write_mem( em6502 *emu, unsigned short addr, unsigned char val )
 {
-	emu->Memory[addr] = val;
+	//need to translate our addr to page in pagetable
+	//addr(0-255) goto page 0, etc
+	page_t *page = emu->page_table[addr / PAGE_SIZE];
 
-	//check to figure out if we're using mem-mapped io
-	#ifdef ENABLE_MEM_MAP_DEVICES
-		int i;
-		for ( i = 0; i < emu->num_wlisteners; i++ ) //check any registered mem-write-listeners
-		{
-			if ( addr >= emu->regions[i].low && addr <= emu->regions[i].high )
-			{
-				//(*pt2Function) (12, 'a', 'b');
-				(* emu->mem_write_listeners[i])(addr);
-				break;
-			}
-		}
-	#endif
+	//check that we have permissions to read it
+	assert(GET_WRITE(page->flag));
+
+	//if handler exists, invoke it for mode=READ
+	if ( page->cb_mem_listener != 0)
+	{
+		(* page->cb_mem_listener)(addr,val,WRITE);
+	}
+
+	//modify actual memory location
+	page->data[addr % PAGE_SIZE] = val;
 }
 
 //This is a convenience macro for getting the next argument for the PC
-#define GET_FIRST_ARG emu->Memory[emu->PC+1]
+#define GET_FIRST_ARG read_mem(emu,emu->PC+1)
+						//emu->Memory[emu->PC+1]
 
 //This is a convenience macro for getting the 2nd next argument for the PC
-#define GET_SECOND_ARG emu->Memory[emu->PC+2]
+#define GET_SECOND_ARG read_mem(emu,emu->PC+2)
+						//emu->Memory[emu->PC+2]
 
 
 //These are convinience macros for commonly used addressing modes
@@ -77,16 +93,23 @@ inline void write_mem( em6502 *emu, unsigned short addr, unsigned char val )
 #define ZP_DIRECT_ACCESS (unsigned char)GET_FIRST_ARG //we must not allow overflow to short type on zero-page addrs
 #define ZP_INDEXED_X_ACCESS (unsigned char) (GET_FIRST_ARG + emu->X) //we must not allow overflow to short type on zero-page addrs
 #define ZP_INDEXED_Y_ACCESS (unsigned char)(GET_FIRST_ARG + emu->Y) //we must not allow overflow to short type on zero-page addrs
-#define PRE_INDEXED_X_INDIRECT_ACCESS generate_addr( emu->Memory[GET_FIRST_ARG + emu->X], emu->Memory[GET_FIRST_ARG + emu->X + 1] )
-#define POST_INDEXED_Y_INDIRECT_ACCESS generate_addr( emu->Memory[GET_FIRST_ARG], emu->Memory[GET_FIRST_ARG + 1] ) + emu->Y
+//#define PRE_INDEXED_X_INDIRECT_ACCESS generate_addr( emu->Memory[GET_FIRST_ARG + emu->X], emu->Memory[GET_FIRST_ARG + emu->X + 1] )
+#define PRE_INDEXED_X_INDIRECT_ACCESS generate_addr( read_mem(emu,GET_FIRST_ARG + emu->X), read_mem(emu,GET_FIRST_ARG + emu->X + 1) )
+
+//#define POST_INDEXED_Y_INDIRECT_ACCESS generate_addr( emu->Memory[GET_FIRST_ARG], emu->Memory[GET_FIRST_ARG + 1] ) + emu->Y
+#define POST_INDEXED_Y_INDIRECT_ACCESS generate_addr( read_mem(emu,GET_FIRST_ARG), read_mem(emu,GET_FIRST_ARG + 1) ) + emu->Y
+
 #define EXTENDED_DIRECT_ACCESS generate_addr(GET_FIRST_ARG, GET_SECOND_ARG)
 #define ABSOLUTE_INDEXED_Y_ACCESS generate_addr(GET_FIRST_ARG, GET_SECOND_ARG)+emu->Y
 #define ABSOLUTE_INDEXED_X_ACCESS generate_addr(GET_FIRST_ARG, GET_SECOND_ARG)+emu->X
 
 //this is a special case of pre/post indexed indirect addressing with index=0
 //only ever used by the JMP instr
-#define ABSOLUTE_INDIRECT_JMP_ACCESS generate_addr( emu->Memory[generate_addr( GET_FIRST_ARG, GET_SECOND_ARG )], \
-													emu->Memory[generate_addr( GET_FIRST_ARG + 1, GET_SECOND_ARG )] )
+//#define ABSOLUTE_INDIRECT_JMP_ACCESS generate_addr( emu->Memory[generate_addr( GET_FIRST_ARG, GET_SECOND_ARG )], \
+//													emu->Memory[generate_addr( GET_FIRST_ARG + 1, GET_SECOND_ARG )] )
+
+#define ABSOLUTE_INDIRECT_JMP_ACCESS generate_addr( read_mem(emu,generate_addr( GET_FIRST_ARG, GET_SECOND_ARG )), \
+													read_mem(emu,generate_addr( GET_FIRST_ARG + 1, GET_SECOND_ARG )) )
 
 
 //this is the default addr that the stack starts a
@@ -112,6 +135,7 @@ inline unsigned short generate_addr(unsigned char low, unsigned char high )
 	(*ptr) = low;
 	(*(ptr+1)) = high;
 	return ret;
+
 }
 
 
@@ -137,22 +161,21 @@ void initialize_em6502(em6502 * emu)
 
 	//OVERFLOW_SET(emu->P) ; //we start out with this flag set, who knows why?
 
-	memset(emu->Memory, -1, MEMORY_SIZE );
+	//memset(emu->Memory, -1, MEMORY_SIZE );
 
 	#ifdef ALLOW_MAX_INSTR_COUNT
 	emu->instr_count = 0;
 	#endif
+}
 
-	//setup the function pointers to memory listeners, if available
-	#ifdef ENABLE_MEM_MAP_DEVICES
-		for ( i = 0; i < MAX_MEMORY_WRITER_LISTENERS; i++ )
-		{
-			emu->mem_write_listeners[i] = 0;
-		}
-		emu->num_wlisteners = 0;
-	#endif
+//loads a single page into memory
+void load_page(em6502 *emu, unsigned char *chunk, size_t size, unsigned int addr_start)
+{
+	//check that we're not crossing any page boundaries
+	assert((addr_start+size-1) / PAGE_SIZE == addr_start / PAGE_SIZE);
 
-
+	page_t *page = emu->page_table[addr_start / PAGE_SIZE];
+	memcpy( &page->data[addr_start % PAGE_SIZE], chunk, size);
 }
 
 /**************************************
@@ -164,34 +187,76 @@ void initialize_em6502(em6502 * emu)
  * Outputs: None
  * Function: copies the memory into the memory space of the em6502 object. This allows us
  * to use relocatable code and copy it anywhere in the memory space
+ * This assumes that the paging memory model has already been built
+ * This also assumes that you can only load the memory on a page-multiple
  *
 ***************************************/
 void load_program( em6502 *emu, void *prog, size_t size, unsigned int offset)
 {
-	memcpy( emu->Memory+offset, prog, size );
+	//memcpy( emu->Memory+offset, prog, size );
+	assert( offset % PAGE_SIZE == 0);
+
+	unsigned int start = offset;
+
+	//must now copy program into the paging model memory, 1 page at a time
+	unsigned char *file = (char *)(prog);
+	size_t to_copy;
+
+	while( size > 0)
+	{
+		if ( size > PAGE_SIZE )
+		{
+			to_copy = PAGE_SIZE;
+		}
+		else
+		{
+			to_copy = size;
+		}
+
+		load_page(emu,file,to_copy,offset);
+
+		//update offset to next page
+		offset+= PAGE_SIZE;
+
+		//update file to point to next chunk of data
+		file+= PAGE_SIZE;
+
+		//update count of data remaining to copy
+		size-= to_copy;
+	}
 
 	//also, we must fix the PC to point to start of memory region, for supporting relocatable code
-	emu->PC = offset;
+	emu->PC = start;
 }
 
 
 /**************************************
- * Name:  add_memory_write_listener
+ * Name:  create_simple_memory_map
  * Inputs:  em6502 * - the 6502 object to execute
- * 			mem_region - memory region to watch
- *			void (*cb_mem_write)(unsigned int) - callback function ptr to invoke
  * Outputs: None
- * Function: registers a memory write listener at given memory region
+ * Function: creates the simplest memory map possible;
+ * 			 straight mapping with all pages marked as read-able
  *
 ***************************************/
-void add_memory_write_listener( em6502 *emu, mem_region region, void (*cb_mem_write)(unsigned short) )
+void create_simple_memory_map( em6502 *emu )
 {
-	emu->mem_write_listeners[emu->num_wlisteners] = cb_mem_write;
-	emu->regions[emu->num_wlisteners] = region;
+	int i;
 
-	emu->num_wlisteners++;
+	//for the simple-memory model, we map into the entire memory space
+	//so we create the underlying memory
+	emu->_memory = (unsigned char*)malloc(sizeof(unsigned char)*MEMORY_SIZE);
 
-	//printf("registered region %d-%d with listener\n", region.low,region.high);
+	//now we simply create all the pages and point them to the corresponding memory
+	//mark them all as read/write/execute, no listeners
+	for ( i = 0; i < NUM_PAGES; i++)
+	{
+		emu->page_table[i] = (page_t *)malloc(sizeof(page_t));
+
+		emu->page_table[i]->data = &emu->_memory[i*PAGE_SIZE];
+		emu->page_table[i]->page_addr = i*PAGE_SIZE;
+		emu->page_table[i]->flag = READ | WRITE | EXECUTE;
+		emu->page_table[i]->cb_mem_listener = 0;
+	}
 }
 
 
@@ -218,7 +283,7 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 	{
 		//process a single instruction here
 		//this defines the main logic loop that implements the instruction set for the 6502 chip
-		switch( emu->Memory[emu->PC] )
+		switch( read_mem(emu,emu->PC) )
 		{
 
 			//***********************>>>LDA INSTRUCTIONS<<<*************************
@@ -506,7 +571,8 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 			case 0x65: //ADC addr : A<- A + [addr] + C
 			{
 				ch1 = emu->Acc;
-				ch2 = emu->Memory[ZP_DIRECT_ACCESS];
+				//ch2 = emu->Memory[ZP_DIRECT_ACCESS];
+				ch2 = read_mem(emu,ZP_DIRECT_ACCESS);
 
 				emu->Acc = (ch1 + ch2) + (unsigned char)(CARRY_GET(emu->P));
 				emu->PC+=2;
@@ -521,7 +587,7 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 			case 0x75: //ADC addr : A<- A + [addr+X] + C
 			{
 				ch1 = emu->Acc;
-				ch2 = emu->Memory[ZP_INDEXED_X_ACCESS];
+				ch2 =read_mem(emu,ZP_INDEXED_X_ACCESS);
 
 				emu->Acc = (ch1 + ch2) + (unsigned char)(CARRY_GET(emu->P));
 				emu->PC+=2;
@@ -536,7 +602,7 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 		    case 0x61: //ADC addr : A<- A + [[addr+X]] + C
 			{
 				ch1 = emu->Acc;
-				ch2 = emu->Memory[PRE_INDEXED_X_INDIRECT_ACCESS];
+				ch2 = read_mem(emu,PRE_INDEXED_X_INDIRECT_ACCESS);
 
 				emu->Acc = (ch1 + ch2) + (unsigned char)(CARRY_GET(emu->P));
 				emu->PC+=2;
@@ -551,7 +617,7 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 			case 0x71: //ADC addr : A<- A+ [[addr+1, addr]+ Y] + C, post-indexed indirect addressing mode
 			{
 				ch1 = emu->Acc;
-				ch2 = emu->Memory[POST_INDEXED_Y_INDIRECT_ACCESS];
+				ch2 = read_mem(emu,POST_INDEXED_Y_INDIRECT_ACCESS);
 
 				emu->Acc = (ch1 + ch2) + (unsigned char)(CARRY_GET(emu->P));
 				emu->PC+=2;
@@ -566,7 +632,7 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 			case 0x6D: //ADC addr : A<- A+ [addr16] + C, extended direct addressing mode
 			{
 				ch1 = emu->Acc;
-				ch2 = emu->Memory[EXTENDED_DIRECT_ACCESS];
+				ch2 = read_mem(emu,EXTENDED_DIRECT_ACCESS);
 
 				emu->Acc = (ch1 + ch2) + (unsigned char)(CARRY_GET(emu->P));
 				emu->PC+=3;
@@ -581,7 +647,7 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 			case 0x79: //ADC addr: A<- A+ [addr16+Y] + C, absolute indexed addressing mode
 			{
 				ch1 = emu->Acc;
-				ch2 = emu->Memory[ABSOLUTE_INDEXED_Y_ACCESS];
+				ch2 = read_mem(emu,ABSOLUTE_INDEXED_Y_ACCESS);
 
 				emu->Acc = (ch1 + ch2) + (unsigned char)(CARRY_GET(emu->P));
 				emu->PC+=3;
@@ -596,7 +662,7 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 			case 0x7D: //ADC addr: A<- A+ [addr16+X] + C, absolute indexed addressing mode
 			{
 				ch1 = emu->Acc;
-				ch2 = emu->Memory[ABSOLUTE_INDEXED_X_ACCESS];
+				ch2 = read_mem(emu,ABSOLUTE_INDEXED_X_ACCESS);
 
 				emu->Acc = (ch1 + ch2) + (unsigned char)(CARRY_GET(emu->P));
 				emu->PC+=3;
@@ -619,7 +685,7 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 				break;
 
 			case 0x25: //AND addr : A<- A AND [addr]
-				emu->Acc = emu->Acc & emu->Memory[ZP_DIRECT_ACCESS];
+				emu->Acc = emu->Acc & read_mem(emu,ZP_DIRECT_ACCESS);
 				emu->PC+=2;
 				//affects s,z flags
 				TEST_AND_SET_ZERO(emu->P, emu->Acc) ;
@@ -627,7 +693,7 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 				break;
 
 			case 0x35: //AND addr : A<- A AND [addr+X]
-				emu->Acc = emu->Acc & emu->Memory[ZP_INDEXED_X_ACCESS];
+				emu->Acc = emu->Acc & read_mem(emu,ZP_INDEXED_X_ACCESS);
 				emu->PC+=2;
 				//affects s,z flags
 				TEST_AND_SET_ZERO(emu->P, emu->Acc) ;
@@ -635,7 +701,7 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 				break;
 
 			case 0x21: //AND addr : A<- A AND [[addr+X]]
-				emu->Acc = emu->Acc & emu->Memory[PRE_INDEXED_X_INDIRECT_ACCESS];
+				emu->Acc = emu->Acc & read_mem(emu,PRE_INDEXED_X_INDIRECT_ACCESS);
 				emu->PC+=2;
 				//affects s,z flags
 				TEST_AND_SET_ZERO(emu->P, emu->Acc) ;
@@ -643,7 +709,7 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 				break;
 
 			case 0x31: //AND addr : A<- A AND [[addr+1,addr] +Y]
-				emu->Acc = emu->Acc & emu->Memory[POST_INDEXED_Y_INDIRECT_ACCESS];
+				emu->Acc = emu->Acc & read_mem(emu,POST_INDEXED_Y_INDIRECT_ACCESS);
 				emu->PC+=2;
 				//affects s,z flags
 				TEST_AND_SET_ZERO(emu->P, emu->Acc) ;
@@ -651,7 +717,7 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 				break;
 
 			case 0x2D: //AND addr : A<- A AND [addr16]
-				emu->Acc = emu->Acc & emu->Memory[EXTENDED_DIRECT_ACCESS];
+				emu->Acc = emu->Acc & read_mem(emu,EXTENDED_DIRECT_ACCESS);
 				emu->PC+=3;
 				//affects s,z flags
 				TEST_AND_SET_ZERO(emu->P, emu->Acc) ;
@@ -659,7 +725,7 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 				break;
 
 			case 0x39: //AND addr : A<- A AND [addr16+Y]
-				emu->Acc = emu->Acc & emu->Memory[ABSOLUTE_INDEXED_Y_ACCESS];
+				emu->Acc = emu->Acc & read_mem(emu,ABSOLUTE_INDEXED_Y_ACCESS);
 				emu->PC+=3;
 				//affects s,z flags
 				TEST_AND_SET_ZERO(emu->P, emu->Acc) ;
@@ -667,7 +733,7 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 				break;
 
 			case 0x3D: //AND addr : A<- A AND [addr16+X]
-				emu->Acc = emu->Acc & emu->Memory[ABSOLUTE_INDEXED_X_ACCESS];
+				emu->Acc = emu->Acc & read_mem(emu,ABSOLUTE_INDEXED_X_ACCESS);
 				emu->PC+=3;
 				//affects s,z flags
 				TEST_AND_SET_ZERO(emu->P, emu->Acc) ;
@@ -677,23 +743,27 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 
 			//***********************>>>BIT INSTRUCTIONS<<<*************************
 			case 0x24: //BIT addr : A AND [addr], sets s,z,v flags only
+			{
 				//affects s,z,v flags
-				TEST_AND_SET_ZERO(emu->P, (unsigned char)(emu->Acc & emu->Memory[ZP_DIRECT_ACCESS]) );
-				TEST_AND_SET_NEG(emu->P, emu->Memory[ZP_DIRECT_ACCESS] );
-				TEST_SIXTH_MEMORY_BIT(emu->P, emu->Memory[ZP_DIRECT_ACCESS] );
+				ch1 = read_mem(emu,ZP_DIRECT_ACCESS);
+				TEST_AND_SET_ZERO(emu->P, (unsigned char)(emu->Acc & ch1) );
+				TEST_AND_SET_NEG(emu->P, ch1 );
+				TEST_SIXTH_MEMORY_BIT(emu->P, ch1 );
 
 				emu->PC+=2;
 				break;
-
+			}
 			case 0x2C: //BIT addr : A AND [addr16], sets s,z,v flags only
+			{
 				//affects s,z,v flags
-				TEST_AND_SET_ZERO(emu->P, (unsigned char)(emu->Acc & emu->Memory[EXTENDED_DIRECT_ACCESS]) );
-				TEST_AND_SET_NEG(emu->P, emu->Memory[EXTENDED_DIRECT_ACCESS] );
-				TEST_SIXTH_MEMORY_BIT(emu->P, emu->Memory[EXTENDED_DIRECT_ACCESS] );
+				ch1 = read_mem(emu,EXTENDED_DIRECT_ACCESS);
+				TEST_AND_SET_ZERO(emu->P, (unsigned char)(emu->Acc & ch1) );
+				TEST_AND_SET_NEG(emu->P, ch1 );
+				TEST_SIXTH_MEMORY_BIT(emu->P, ch1 );
 
 				emu->PC+=3;
 				break;
-
+			}
 
 			//***********************>>>CMP INSTRUCTIONS<<<*************************
 			case 0xC9: //CMP addr : A - IMM, sets s,z,c flags only
@@ -714,7 +784,7 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 			case 0xC5: //CMP addr : A - [addr], sets s,z,c flags only
 			{
 				ch1 = emu->Acc;
-				ch2 = emu->Memory[ZP_DIRECT_ACCESS];
+				ch2 = read_mem(emu,ZP_DIRECT_ACCESS);
 				res = ch1 - ch2;
 
 				emu->PC+=2;
@@ -729,7 +799,7 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 			case 0xD5: //CMP addr : A - [addr+X], sets s,z,c flags only
 			{
 				ch1 = emu->Acc;
-				ch2 = emu->Memory[ZP_INDEXED_X_ACCESS];
+				ch2 = read_mem(emu,ZP_INDEXED_X_ACCESS);
 				res = ch1 - ch2;
 
 				emu->PC+=2;
@@ -744,7 +814,7 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 			case 0xC1: //CMP addr : A - [[addr+X]], sets s,z,c flags only
 			{
 				ch1 = emu->Acc;
-				ch2 = emu->Memory[PRE_INDEXED_X_INDIRECT_ACCESS];
+				ch2 = read_mem(emu,PRE_INDEXED_X_INDIRECT_ACCESS);
 				res = ch1 - ch2;
 
 				emu->PC+=2;
@@ -759,7 +829,7 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 			case 0xD1: //CMP addr : A - [[addr+1,addr]+Y], sets s,z,c flags only
 			{
 				ch1 = emu->Acc;
-				ch2 = emu->Memory[POST_INDEXED_Y_INDIRECT_ACCESS];
+				ch2 = read_mem(emu,POST_INDEXED_Y_INDIRECT_ACCESS);
 				res = ch1 - ch2;
 
 				emu->PC+=2;
@@ -774,7 +844,7 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 			case 0xCD: //CMP addr : A - [addr16], sets s,z,c flags only
 			{
 				ch1 = emu->Acc;
-				ch2 = emu->Memory[EXTENDED_DIRECT_ACCESS];
+				ch2 = read_mem(emu,EXTENDED_DIRECT_ACCESS);
 				res = ch1 - ch2;
 
 				emu->PC+=3;
@@ -789,7 +859,7 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 			case 0xD9: //CMP addr : A - [addr16+Y], sets s,z,c flags only
 			{
 				ch1 = emu->Acc;
-				ch2 = emu->Memory[ABSOLUTE_INDEXED_Y_ACCESS];
+				ch2 = read_mem(emu,ABSOLUTE_INDEXED_Y_ACCESS);
 				res = ch1 - ch2;
 
 				emu->PC+=3;
@@ -804,7 +874,7 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 			case 0xDD: //CMP addr : A - [addr16+X], sets s,z,c flags only
 			{
 				ch1 = emu->Acc;
-				ch2 = emu->Memory[ABSOLUTE_INDEXED_X_ACCESS];
+				ch2 = read_mem(emu,ABSOLUTE_INDEXED_X_ACCESS);
 				res = ch1 - ch2;
 
 				emu->PC+=3;
@@ -827,7 +897,7 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 				break;
 
 			case 0x45: //EOR addr : A<- A ^ [addr]
-				emu->Acc = emu->Acc ^ emu->Memory[ZP_DIRECT_ACCESS];
+				emu->Acc = emu->Acc ^ read_mem(emu,ZP_DIRECT_ACCESS);
 				emu->PC+=2;
 				//affects s,z flags
 				TEST_AND_SET_ZERO(emu->P, emu->Acc) ;
@@ -835,7 +905,7 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 				break;
 
 			case 0x55: //EOR addr : A<- A ^ [addr+X]
-				emu->Acc = emu->Acc ^ emu->Memory[ZP_INDEXED_X_ACCESS];
+				emu->Acc = emu->Acc ^ read_mem(emu,ZP_INDEXED_X_ACCESS);
 				emu->PC+=2;
 				//affects s,z flags
 				TEST_AND_SET_ZERO(emu->P, emu->Acc) ;
@@ -843,7 +913,7 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 				break;
 
 			case 0x41: //EOR addr : A<- A ^ [[addr+X]]
-				emu->Acc = emu->Acc ^ emu->Memory[PRE_INDEXED_X_INDIRECT_ACCESS];
+				emu->Acc = emu->Acc ^ read_mem(emu,PRE_INDEXED_X_INDIRECT_ACCESS);
 				emu->PC+=2;
 				//affects s,z flags
 				TEST_AND_SET_ZERO(emu->P, emu->Acc) ;
@@ -851,7 +921,7 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 				break;
 
 			case 0x51: //EOR addr : A<- A ^ [[addr+1,addr] +Y]
-				emu->Acc = emu->Acc ^ emu->Memory[POST_INDEXED_Y_INDIRECT_ACCESS];
+				emu->Acc = emu->Acc ^ read_mem(emu,POST_INDEXED_Y_INDIRECT_ACCESS);
 				emu->PC+=2;
 				//affects s,z flags
 				TEST_AND_SET_ZERO(emu->P, emu->Acc) ;
@@ -859,7 +929,7 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 				break;
 
 			case 0x4D: //EOR addr : A<- A ^ [addr16]
-				emu->Acc = emu->Acc ^ emu->Memory[EXTENDED_DIRECT_ACCESS];
+				emu->Acc = emu->Acc ^ read_mem(emu,EXTENDED_DIRECT_ACCESS);
 				emu->PC+=3;
 				//affects s,z flags
 				TEST_AND_SET_ZERO(emu->P, emu->Acc) ;
@@ -867,7 +937,7 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 				break;
 
 			case 0x59: //EOR addr : A<- A ^ [addr16+Y]
-				emu->Acc = emu->Acc ^ emu->Memory[ABSOLUTE_INDEXED_Y_ACCESS];
+				emu->Acc = emu->Acc ^ read_mem(emu,ABSOLUTE_INDEXED_Y_ACCESS);
 				emu->PC+=3;
 				//affects s,z flags
 				TEST_AND_SET_ZERO(emu->P, emu->Acc) ;
@@ -875,7 +945,7 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 				break;
 
 			case 0x5D: //EOR addr : A<- A ^ [addr16+X]
-				emu->Acc = emu->Acc ^ emu->Memory[ABSOLUTE_INDEXED_X_ACCESS];
+				emu->Acc = emu->Acc ^ read_mem(emu,ABSOLUTE_INDEXED_X_ACCESS);
 				emu->PC+=3;
 				//affects s,z flags
 				TEST_AND_SET_ZERO(emu->P, emu->Acc) ;
@@ -893,7 +963,7 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 				break;
 
 			case 0x05: //ORA addr : A<- A | [addr]
-				emu->Acc = emu->Acc | emu->Memory[ZP_DIRECT_ACCESS];
+				emu->Acc = emu->Acc | read_mem(emu,ZP_DIRECT_ACCESS);
 				emu->PC+=2;
 				//affects s,z flags
 				TEST_AND_SET_ZERO(emu->P, emu->Acc) ;
@@ -901,7 +971,7 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 				break;
 
 			case 0x15: //ORA addr : A<- A | [addr+X]
-				emu->Acc = emu->Acc | emu->Memory[ZP_INDEXED_X_ACCESS];
+				emu->Acc = emu->Acc | read_mem(emu,ZP_INDEXED_X_ACCESS);
 				emu->PC+=2;
 				//affects s,z flags
 				TEST_AND_SET_ZERO(emu->P, emu->Acc) ;
@@ -909,7 +979,7 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 				break;
 
 			case 0x01: //ORA addr : A<- A | [[addr+X]]
-				emu->Acc = emu->Acc | emu->Memory[PRE_INDEXED_X_INDIRECT_ACCESS];
+				emu->Acc = emu->Acc | read_mem(emu,PRE_INDEXED_X_INDIRECT_ACCESS);
 				emu->PC+=2;
 				//affects s,z flags
 				TEST_AND_SET_ZERO(emu->P, emu->Acc) ;
@@ -917,7 +987,7 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 				break;
 
 			case 0x11: //ORA addr : A<- A | [[addr+1,addr] +Y]
-				emu->Acc = emu->Acc | emu->Memory[POST_INDEXED_Y_INDIRECT_ACCESS];
+				emu->Acc = emu->Acc | read_mem(emu,POST_INDEXED_Y_INDIRECT_ACCESS);
 				emu->PC+=2;
 				//affects s,z flags
 				TEST_AND_SET_ZERO(emu->P, emu->Acc) ;
@@ -925,7 +995,7 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 				break;
 
 			case 0x0D: //ORA addr : A<- A | [addr16]
-				emu->Acc = emu->Acc | emu->Memory[EXTENDED_DIRECT_ACCESS];
+				emu->Acc = emu->Acc | read_mem(emu,EXTENDED_DIRECT_ACCESS);
 				emu->PC+=3;
 				//affects s,z flags
 				TEST_AND_SET_ZERO(emu->P, emu->Acc) ;
@@ -933,7 +1003,7 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 				break;
 
 			case 0x19: //ORA addr : A<- A | [addr16+Y]
-				emu->Acc = emu->Acc | emu->Memory[ABSOLUTE_INDEXED_Y_ACCESS];
+				emu->Acc = emu->Acc | read_mem(emu,ABSOLUTE_INDEXED_Y_ACCESS);
 				emu->PC+=3;
 				//affects s,z flags
 				TEST_AND_SET_ZERO(emu->P, emu->Acc) ;
@@ -941,7 +1011,7 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 				break;
 
 			case 0x1D: //ORA addr : A<- A | [addr16+X]
-				emu->Acc = emu->Acc | emu->Memory[ABSOLUTE_INDEXED_X_ACCESS];
+				emu->Acc = emu->Acc | read_mem(emu,ABSOLUTE_INDEXED_X_ACCESS);
 				emu->PC+=3;
 				//affects s,z flags
 				TEST_AND_SET_ZERO(emu->P, emu->Acc) ;
@@ -968,7 +1038,7 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 			case 0xE5: //SBC addr : A<- A - [addr] - C'
 			{
 				ch1 = emu->Acc;
-				ch2 = emu->Memory[ZP_DIRECT_ACCESS] + ((unsigned char)1 - (unsigned char)(CARRY_GET(emu->P)));
+				ch2 = read_mem(emu,ZP_DIRECT_ACCESS) + ((unsigned char)1 - (unsigned char)(CARRY_GET(emu->P)));
 
 				emu->Acc = (ch1 - ch2);
 				emu->PC+=2;
@@ -983,7 +1053,7 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 			case 0xF5: //SBC addr : A<- A - [addr+X] - C'
 			{
 				ch1 = emu->Acc;
-				ch2 = emu->Memory[ZP_INDEXED_X_ACCESS] + ((unsigned char)1 - (unsigned char)(CARRY_GET(emu->P)));
+				ch2 = read_mem(emu,ZP_INDEXED_X_ACCESS) + ((unsigned char)1 - (unsigned char)(CARRY_GET(emu->P)));
 
 				emu->Acc = (ch1 - ch2);
 				emu->PC+=2;
@@ -998,7 +1068,7 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 		    case 0xE1: //SBC addr : A<- A - [[addr+X]] - C'
 			{
 				ch1 = emu->Acc;
-				ch2 = emu->Memory[PRE_INDEXED_X_INDIRECT_ACCESS] + ((unsigned char)1 - (unsigned char)(CARRY_GET(emu->P)));
+				ch2 = read_mem(emu,PRE_INDEXED_X_INDIRECT_ACCESS) + ((unsigned char)1 - (unsigned char)(CARRY_GET(emu->P)));
 
 				emu->Acc = (ch1 - ch2);
 				emu->PC+=2;
@@ -1013,7 +1083,7 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 			case 0xF1: //SBC addr : A<- A - [[addr+1, addr]+ Y] - C', post-indexed indirect addressing mode
 			{
 				ch1 = emu->Acc;
-				ch2 = emu->Memory[POST_INDEXED_Y_INDIRECT_ACCESS] + ((unsigned char)1 - (unsigned char)(CARRY_GET(emu->P)));
+				ch2 =read_mem(emu,POST_INDEXED_Y_INDIRECT_ACCESS) + ((unsigned char)1 - (unsigned char)(CARRY_GET(emu->P)));
 
 				emu->Acc = (ch1 - ch2);
 				emu->PC+=2;
@@ -1028,7 +1098,7 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 			case 0xED: //SBC addr : A<- A - [addr16] - C', extended direct addressing mode
 			{
 				ch1 = emu->Acc;
-				ch2 = emu->Memory[EXTENDED_DIRECT_ACCESS] + ((unsigned char)1 - (unsigned char)(CARRY_GET(emu->P)));
+				ch2 = read_mem(emu,EXTENDED_DIRECT_ACCESS) + ((unsigned char)1 - (unsigned char)(CARRY_GET(emu->P)));
 
 				emu->Acc = (ch1 - ch2);
 				emu->PC+=3;
@@ -1043,7 +1113,7 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 			case 0xF9: //SBC addr: A<- A - [addr16+Y] - C', absolute indexed addressing mode
 			{
 				ch1 = emu->Acc;
-				ch2 = emu->Memory[ABSOLUTE_INDEXED_Y_ACCESS] + ((unsigned char)1 - (unsigned char)(CARRY_GET(emu->P)));
+				ch2 = read_mem(emu,ABSOLUTE_INDEXED_Y_ACCESS) + ((unsigned char)1 - (unsigned char)(CARRY_GET(emu->P)));
 
 				emu->Acc = (ch1 - ch2);
 				emu->PC+=3;
@@ -1058,7 +1128,7 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 			case 0xFD: //SBC addr: A<- A - [addr16+X] - C', absolute indexed addressing mode
 			{
 				ch1 = emu->Acc;
-				ch2 = emu->Memory[ABSOLUTE_INDEXED_X_ACCESS] + ((unsigned char)1 - (unsigned char)(CARRY_GET(emu->P)));
+				ch2 = read_mem(emu,ABSOLUTE_INDEXED_X_ACCESS) + ((unsigned char)1 - (unsigned char)(CARRY_GET(emu->P)));
 
 				emu->Acc = (ch1 - ch2);
 				emu->PC+=3;
@@ -1075,7 +1145,7 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 			case 0xE6: //INC addr : [addr]<- [addr]+1
 				STUB_OUT_MEM_ACCESS_IFACES ;
 
-				ch1 = emu->Memory[ZP_DIRECT_ACCESS] + 1;
+				ch1 = read_mem(emu,ZP_DIRECT_ACCESS) + 1;
 
 				write_mem(emu,ZP_DIRECT_ACCESS,ch1);
 				//emu->Memory[ZP_DIRECT_ACCESS] = ch1;
@@ -1089,7 +1159,7 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 			case 0xF6: //INC addr : [addr+X]<- [addr+X]+1
 				STUB_OUT_MEM_ACCESS_IFACES ;
 
-				ch1 = emu->Memory[ZP_INDEXED_X_ACCESS] + 1;
+				ch1 = read_mem(emu,ZP_INDEXED_X_ACCESS) + 1;
 
 				//emu->Memory[ZP_INDEXED_X_ACCESS] = ch1;
 				write_mem(emu,ZP_INDEXED_X_ACCESS,ch1);
@@ -1103,7 +1173,7 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 			case 0xEE: //INC addr : [addr16]<- [addr16]+1
 				STUB_OUT_MEM_ACCESS_IFACES ;
 
-				ch1 = emu->Memory[EXTENDED_DIRECT_ACCESS] + 1;
+				ch1 = read_mem(emu,EXTENDED_DIRECT_ACCESS) + 1;
 
 				//emu->Memory[EXTENDED_DIRECT_ACCESS] = ch1;
 				write_mem(emu,EXTENDED_DIRECT_ACCESS,ch1);
@@ -1117,7 +1187,7 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 			case 0xFE: //INC addr : [addr16+X]<- [addr16+X]+1
 				STUB_OUT_MEM_ACCESS_IFACES ;
 
-				ch1 = emu->Memory[ABSOLUTE_INDEXED_X_ACCESS] + 1;
+				ch1 = read_mem(emu,ABSOLUTE_INDEXED_X_ACCESS) + 1;
 
 				//emu->Memory[ABSOLUTE_INDEXED_X_ACCESS] = ch1;
 				write_mem(emu,ABSOLUTE_INDEXED_X_ACCESS,ch1);
@@ -1133,7 +1203,7 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 			case 0xC6: //DEC addr : [addr]<- [addr]-1
 				STUB_OUT_MEM_ACCESS_IFACES ;
 
-				ch1 = emu->Memory[ZP_DIRECT_ACCESS] - 1;
+				ch1 = read_mem(emu,ZP_DIRECT_ACCESS) - 1;
 
 				//emu->Memory[ZP_DIRECT_ACCESS] = ch1;
 				write_mem(emu,ZP_DIRECT_ACCESS,ch1);
@@ -1147,7 +1217,7 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 			case 0xD6: //DEC addr : [addr+X]<- [addr+X]-1
 				STUB_OUT_MEM_ACCESS_IFACES ;
 
-				ch1 = emu->Memory[ZP_INDEXED_X_ACCESS] - 1;
+				ch1 = read_mem(emu,ZP_INDEXED_X_ACCESS) - 1;
 
 				//emu->Memory[ZP_INDEXED_X_ACCESS] = ch1;
 				write_mem(emu,ZP_INDEXED_X_ACCESS,ch1);
@@ -1161,7 +1231,7 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 			case 0xCE: //DEC addr : [addr16]<- [addr16]+1
 				STUB_OUT_MEM_ACCESS_IFACES ;
 
-				ch1 = emu->Memory[EXTENDED_DIRECT_ACCESS] - 1;
+				ch1 = read_mem(emu,EXTENDED_DIRECT_ACCESS) - 1;
 
 				//emu->Memory[EXTENDED_DIRECT_ACCESS] = ch1;
 				write_mem(emu,EXTENDED_DIRECT_ACCESS,ch1);
@@ -1175,7 +1245,7 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 			case 0xDE: //DEC addr : [addr16+X]<- [addr16+X]-1
 				STUB_OUT_MEM_ACCESS_IFACES ;
 
-				ch1 = emu->Memory[ABSOLUTE_INDEXED_X_ACCESS] - 1;
+				ch1 = read_mem(emu,ABSOLUTE_INDEXED_X_ACCESS) - 1;
 
 				//emu->Memory[ABSOLUTE_INDEXED_X_ACCESS] = ch1;
 				write_mem(emu,ABSOLUTE_INDEXED_X_ACCESS,ch1);
@@ -1203,7 +1273,7 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 
 			case 0xE4: //CPX addr : X-[addr], sets s,z,c flags
 				ch1 = emu->X;
-				ch2 = emu->Memory[ZP_DIRECT_ACCESS];
+				ch2 = read_mem(emu,ZP_DIRECT_ACCESS);
 				res = ch1 - ch2;
 
 				emu->PC+=2;
@@ -1216,7 +1286,7 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 
 			case 0xEC: //CPX addr : X-[addr16], sets s,z,c flags
 				ch1 = emu->X;
-				ch2 = emu->Memory[EXTENDED_DIRECT_ACCESS];
+				ch2 = read_mem(emu,EXTENDED_DIRECT_ACCESS);
 				res = ch1 - ch2;
 
 				emu->PC+=3;
@@ -1244,7 +1314,7 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 
 			case 0xC4: //CPY addr : Y-[addr], sets s,z,c flags
 				ch1 = emu->Y;
-				ch2 = emu->Memory[ZP_DIRECT_ACCESS];
+				ch2 = read_mem(emu,ZP_DIRECT_ACCESS);
 				res = ch1 - ch2;
 
 				emu->PC+=2;
@@ -1257,7 +1327,7 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 
 			case 0xCC: //CPY addr : Y-[addr16], sets s,z,c flags
 				ch1 = emu->Y;
-				ch2 = emu->Memory[EXTENDED_DIRECT_ACCESS];
+				ch2 = read_mem(emu,EXTENDED_DIRECT_ACCESS);
 				res = ch1 - ch2;
 
 				emu->PC+=3;
@@ -1301,7 +1371,7 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 			case 0x26: //ROL addr : [addr], sets s,z flags, rotated through c flag
 				STUB_OUT_MEM_ACCESS_IFACES ;
 
-				ch1 = emu->Memory[ZP_DIRECT_ACCESS];
+				ch1 = read_mem(emu,ZP_DIRECT_ACCESS);
 				ch2 = (((int)(NEG_GET(emu->P))) == 0x00)?0:1;
 				res = (((int)(CARRY_GET(emu->P))) == 0x00)?0:1;
 
@@ -1329,7 +1399,7 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 			case 0x36: //ROL addr : [addr+X], sets s,z flags, rotated through c flag
 				STUB_OUT_MEM_ACCESS_IFACES ;
 
-				ch1 = emu->Memory[ZP_INDEXED_X_ACCESS];
+				ch1 = read_mem(emu,ZP_INDEXED_X_ACCESS);
 				ch2 = (((int)(NEG_GET(emu->P))) == 0x00)?0:1;
 				res = (((int)(CARRY_GET(emu->P))) == 0x00)?0:1;
 
@@ -1357,7 +1427,7 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 			case 0x2E: //ROL addr : [addr16], sets s,z flags, rotated through c flag
 				STUB_OUT_MEM_ACCESS_IFACES ;
 
-				ch1 = emu->Memory[EXTENDED_DIRECT_ACCESS];
+				ch1 = read_mem(emu,EXTENDED_DIRECT_ACCESS);
 				ch2 = (((int)(NEG_GET(emu->P))) == 0x00)?0:1;
 				res = (((int)(CARRY_GET(emu->P))) == 0x00)?0:1;
 
@@ -1386,7 +1456,7 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 			case 0x3E: //ROL addr : [addr16+X], sets s,z flags, rotated through c flag
 				STUB_OUT_MEM_ACCESS_IFACES ;
 
-				ch1 = emu->Memory[ABSOLUTE_INDEXED_X_ACCESS];
+				ch1 = read_mem(emu,ABSOLUTE_INDEXED_X_ACCESS);
 				ch2 = (((int)(NEG_GET(emu->P))) == 0x00)?0:1;
 				res = (((int)(CARRY_GET(emu->P))) == 0x00)?0:1;
 
@@ -1444,7 +1514,7 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 			case 0x66: //ROR addr : [addr], sets s,z flags, rotated through c flag
 				STUB_OUT_MEM_ACCESS_IFACES ;
 
-				ch1 = emu->Memory[ZP_DIRECT_ACCESS];
+				ch1 = read_mem(emu,ZP_DIRECT_ACCESS);
 				ch2 = (((int)(CARRY_GET(ch1))) == 0x00)?0:1;
 				res = (((int)(CARRY_GET(emu->P))) == 0x00)?0:1;
 
@@ -1472,7 +1542,7 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 			case 0x76: //ROR addr : [addr+X], sets s,z flags, rotated through c flag
 				STUB_OUT_MEM_ACCESS_IFACES ;
 
-				ch1 = emu->Memory[ZP_INDEXED_X_ACCESS];
+				ch1 = read_mem(emu,ZP_INDEXED_X_ACCESS);
 				ch2 = (((int)(CARRY_GET(ch1))) == 0x00)?0:1;
 				res = (((int)(CARRY_GET(emu->P))) == 0x00)?0:1;
 
@@ -1501,7 +1571,7 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 			case 0x6E: //ROR addr : [addr16], sets s,z flags, rotated through c flag
 				STUB_OUT_MEM_ACCESS_IFACES ;
 
-				ch1 = emu->Memory[EXTENDED_DIRECT_ACCESS];
+				ch1 = read_mem(emu,EXTENDED_DIRECT_ACCESS);
 				ch2 = (((int)(CARRY_GET(ch1))) == 0x00)?0:1;
 				res = (((int)(CARRY_GET(emu->P))) == 0x00)?0:1;
 
@@ -1530,7 +1600,7 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 			case 0x7E: //ROR addr : [addr16+X], sets s,z flags, rotated through c flag
 				STUB_OUT_MEM_ACCESS_IFACES ;
 
-				ch1 = emu->Memory[ABSOLUTE_INDEXED_X_ACCESS];
+				ch1 = read_mem(emu,ABSOLUTE_INDEXED_X_ACCESS);
 				ch2 = (((int)(CARRY_GET(ch1))) == 0x00)?0:1;
 				res = (((int)(CARRY_GET(emu->P))) == 0x00)?0:1;
 
@@ -1584,7 +1654,7 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 			case 0x06: //ASL addr : [addr], sets n,z flags, shifts to c flag
 				STUB_OUT_MEM_ACCESS_IFACES ;
 
-				ch1 = emu->Memory[ZP_DIRECT_ACCESS];
+				ch1 = read_mem(emu,ZP_DIRECT_ACCESS);
 				ch2 = (((int)(NEG_GET(ch1))) == 0x00)?0:1;
 				//res = (((int)(CARRY_GET(emu->P))) == 0x00)?0:1;
 
@@ -1609,7 +1679,7 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 			case 0x16: //ASL addr : [addr+x], sets n,z flags, shifts to c flag
 				STUB_OUT_MEM_ACCESS_IFACES ;
 
-				ch1 = emu->Memory[ZP_INDEXED_X_ACCESS];
+				ch1 = read_mem(emu,ZP_INDEXED_X_ACCESS);
 				ch2 = (((int)(NEG_GET(ch1))) == 0x00)?0:1;
 				//res = (((int)(CARRY_GET(emu->P))) == 0x00)?0:1;
 
@@ -1634,7 +1704,7 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 			case 0x0E: //ASL addr : [addr16], sets n,z flags, shifts to c flag
 				STUB_OUT_MEM_ACCESS_IFACES ;
 
-				ch1 = emu->Memory[EXTENDED_DIRECT_ACCESS];
+				ch1 = read_mem(emu,EXTENDED_DIRECT_ACCESS);
 				ch2 = (((int)(NEG_GET(ch1))) == 0x00)?0:1;
 				//res = (((int)(CARRY_GET(emu->P))) == 0x00)?0:1;
 
@@ -1659,7 +1729,7 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 			case 0x1E: //ASL addr : [addr16+X], sets n,z flags, shifts to c flag
 				STUB_OUT_MEM_ACCESS_IFACES ;
 
-				ch1 = emu->Memory[ABSOLUTE_INDEXED_X_ACCESS];
+				ch1 = read_mem(emu,ABSOLUTE_INDEXED_X_ACCESS);
 				ch2 = (((int)(NEG_GET(ch1))) == 0x00)?0:1;
 				//res = (((int)(CARRY_GET(emu->P))) == 0x00)?0:1;
 
@@ -1710,7 +1780,7 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 			case 0x46: //LSR addr : [addr], sets z flag, clears n flag, shifts to c flag
 				STUB_OUT_MEM_ACCESS_IFACES ;
 
-				ch1 = emu->Memory[ZP_DIRECT_ACCESS];
+				ch1 = read_mem(emu,ZP_DIRECT_ACCESS);
 				ch2 = (((int)(CARRY_GET(ch1))) == 0x00)?0:1;
 				//res = (((int)(CARRY_GET(emu->P))) == 0x00)?0:1;
 
@@ -1735,7 +1805,7 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 			case 0x56: //LSR addr : [addr], sets z flag, clears n flag, shifts to c flag
 				STUB_OUT_MEM_ACCESS_IFACES ;
 
-				ch1 = emu->Memory[ZP_INDEXED_X_ACCESS];
+				ch1 = read_mem(emu,ZP_INDEXED_X_ACCESS);
 				ch2 = (((int)(CARRY_GET(ch1))) == 0x00)?0:1;
 				//res = (((int)(CARRY_GET(emu->P))) == 0x00)?0:1;
 
@@ -1760,7 +1830,7 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 			case 0x4E: //LSR addr : [addr16], sets z flag, clears n flag, shifts to c flag
 				STUB_OUT_MEM_ACCESS_IFACES ;
 
-				ch1 = emu->Memory[EXTENDED_DIRECT_ACCESS];
+				ch1 = read_mem(emu,EXTENDED_DIRECT_ACCESS);
 				ch2 = (((int)(CARRY_GET(ch1))) == 0x00)?0:1;
 				//res = (((int)(CARRY_GET(emu->P))) == 0x00)?0:1;
 
@@ -1785,7 +1855,7 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 			case 0x5E: //LSR addr : [addr16+X], sets z flag, clears n flag, shifts to c flag
 				STUB_OUT_MEM_ACCESS_IFACES ;
 
-				ch1 = emu->Memory[ABSOLUTE_INDEXED_X_ACCESS];
+				ch1 = read_mem(emu,ABSOLUTE_INDEXED_X_ACCESS);
 				ch2 = (((int)(CARRY_GET(ch1))) == 0x00)?0:1;
 				//res = (((int)(CARRY_GET(emu->P))) == 0x00)?0:1;
 
@@ -2027,7 +2097,7 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 				//first increment stack
 				emu->S+=1; //remember that stack grows down
 
-				emu->Acc =emu->Memory[ generate_addr(emu->S, STACK_HIGH_ADDR) ];
+				emu->Acc = read_mem(emu, generate_addr(emu->S, STACK_HIGH_ADDR) );
 
 				emu->PC+=1;
 				//affects s,z flags
@@ -2055,7 +2125,7 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 				//first increment stack
 				emu->S+=1; //remember that stack grows down
 
-				emu->P = emu->Memory[ generate_addr(emu->S, STACK_HIGH_ADDR) ];
+				emu->P = read_mem(emu, generate_addr(emu->S, STACK_HIGH_ADDR) );
 
 				emu->PC+=1;
 				//affects all flags, they all get replaced with new values
@@ -2125,8 +2195,8 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 				*/
 
 				emu->PC = generate_addr(
-					emu->Memory[ generate_addr( ISR_LOW_ADDR, ISR_HIGH_ADDR ) ],    //low bit
-					emu->Memory[ generate_addr( ISR_HIGH_ADDR, ISR_HIGH_ADDR ) ]  //high bit
+						read_mem(emu, generate_addr( ISR_LOW_ADDR, ISR_HIGH_ADDR ) ),    //low bit
+						read_mem(emu, generate_addr( ISR_HIGH_ADDR, ISR_HIGH_ADDR ) )  //high bit
 				);
 				break;
 
@@ -2136,13 +2206,13 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 
 				//pull old P/status register from stack
 				emu->S+=1;
-				emu->P = emu->Memory[ generate_addr(emu->S, STACK_HIGH_ADDR) ];
+				emu->P = read_mem(emu, generate_addr(emu->S, STACK_HIGH_ADDR) );
 
 				//pull 2bytes that make up our PC from stack
 				emu->S+=1;
 				emu->PC = generate_addr(
-					emu->Memory[ generate_addr(emu->S, STACK_HIGH_ADDR) ],  //low byte
-					emu->Memory[ generate_addr((emu->S)+1, STACK_HIGH_ADDR) ]  //high byte
+						read_mem(emu, generate_addr(emu->S, STACK_HIGH_ADDR) ),  //low byte
+						read_mem(emu, generate_addr((emu->S)+1, STACK_HIGH_ADDR) )  //high byte
 				);
 				emu->S+=1;
 
@@ -2184,8 +2254,8 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 				//pull 2bytes that make up our PC from stack
 				emu->S+=1;
 				emu->PC = generate_addr(
-					emu->Memory[ generate_addr(emu->S, STACK_HIGH_ADDR) ],  //low byte
-					emu->Memory[ generate_addr((emu->S)+1, STACK_HIGH_ADDR) ]  //high byte
+						read_mem(emu, generate_addr(emu->S, STACK_HIGH_ADDR) ),  //low byte
+						read_mem(emu, generate_addr((emu->S)+1, STACK_HIGH_ADDR) )  //high byte
 				);
 				emu->S+=1;
 
@@ -2194,7 +2264,7 @@ void run_program( em6502 *emu, unsigned int max_instr_count )
 				break;
 
 			default:
-				printf("error: invalid object code 0x%hhx at P=%d\n", emu->Memory[emu->PC], emu->PC );
+				printf("error: invalid object code 0x%hhx at P=%d\n", read_mem(emu,emu->PC), emu->PC );
 				printf("with %d remaining\n", max_instr_count);
 				exit(-1);
 
