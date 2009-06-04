@@ -7,14 +7,16 @@ There's a README in each project below
 
 Currently we have:
 *6502-cpu-emulator - emulator for the 6502 cpu. It is mostly done
+*6502-aslink - simple 6502 assembler/llinker in ruby. It is done. Currently
+lacking a lot of compiler macros/directives cause I can't seem to find a
+common subset of these things that I need. It seems to compile most
+programs on 6502asm.com
 
 Short-term future:
-* I've always wanted to mess with assemblers/linkers and existing 6502
-assemblers are very hard to use so I'll write my own. And yes, it is 
-just an excuse to mess around.
-
 * Visualization of 6502-cpu core in action; written in sdl. And yes, it
 is just an excuse to mess with sdl, although it'll be real pretty to look at.
+* start on the emulation of the stella/RIOT/tia chips 
+
 
 
 History:
@@ -29,3 +31,9 @@ Checked in base skel for 6502 assembler. Currently, it cant assemble anything.
 Finished 6502 assembler/linker. All basic instr/gotos are compileable. 
 Implemented first necessary macro - DCB. Added a few examples of
 progs I can compile to the /progs dir.
+
+06/04/09
+Refactored 6502 cpu  emulator to use paging model
+Clean up 6502-cpu code
+Get 6502-asslink to accept long labels
+Add example usage code to 6502-assembler.rb

@@ -1,6 +1,18 @@
 
 if __FILE__ == $0
-  print "6502-assembler called!"
+  print "Assembler usage:\n"
+  print "a = Assembler.new\n"
+  print "a.assemble(\"sample.as\")\n"
+  print "a.link_sym_labels\n"
+  print "a.emit_instr(0x0600)\n"
+  print "a.debug_emit(sample.asm)\n"
+  print "a.emit_assembly(sample.asm)\n"
+  print "\n\n"
+  print "assemble() does the first pass-parsing\n"
+  print "link_sym_labels() is a sanity check pass for symbols\n"
+  print "emit_instr() is a 2-pass linking assuming all symbols are located\n"
+  print "debug_emit() is optional debug step to output human-readable code\n"
+  print "emit_assembly() outputs valid binary code + extra newline char\n"
 end
 
 require "tokenizer.rb"
@@ -180,8 +192,8 @@ class Assembler
   #input: token to consider
   #output: label, if it is a label, nil otherwise
   def is_label?(tok)
-    #a label is defined as: 1st character = letter, followed by upto 5 chars/digits, followed by ":"
-    return tok.chop if  ( (tok =~ /[A-Za-z]\w{0,5}:$/) == 0) and tok[-1] == 58
+    #a label is defined as: 1st character = letter, followed by upto 10 chars/digits, followed by ":"
+    return tok.chop if  ( (tok =~ /[A-Z_a-z]\w{0,10}:$/) == 0) and tok[-1] == 58
     return nil
   end
   
@@ -470,6 +482,7 @@ class Assembler
           t = @tokenizer.peek
           p "peeked val=#{t}"
           
+        
           #edge case: last instr in stream is accumulator addressing
           if t == nil and @instr_set[tok.upcase][ACCUM] != nil
             instr = Instr.new
@@ -478,6 +491,20 @@ class Assembler
             @instr.push( instr )
             
             @tokenizer.next
+            next 
+          end
+          
+          #deal with accumulator addressing here in general case
+          #we ran up a case like:  asl\n tax
+          #both are accumulator instr but they get interpreted as asl 'label16'
+          #to fix, check that 't' is not a valid instr already
+          if @instr_set[tok.upcase][ACCUM] != nil and @instr_set[t.upcase] != nil
+            instr = Instr.new
+            instr.sym_name = tok.upcase
+            instr.opcode = @instr_set[tok.upcase][ACCUM]
+            @instr.push( instr )
+            p "found accumulator addressing problem!\n"
+            
             next 
           end
           
@@ -563,7 +590,7 @@ class Assembler
   #attempts to link 
   #currently we can compile code that has calls to undefined labels
   #we must catch it in the linking
-  def emit_instr(base_addr = 0x0600, fname = "output" )
+  def emit_instr(base_addr = 0x0600)
     #by convention, stack is 0x0100-0x01FF
     #so we try tolay out our program starting from 0x0200
     #

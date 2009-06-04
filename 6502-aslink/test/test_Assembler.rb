@@ -137,8 +137,9 @@ class TestAssembler < Test::Unit::TestCase
     assert_equal( @assembler.is_direct_mem?("\$FaH"), nil)
     
     assert_equal( @assembler.is_direct_mem?("label"), [Assembler::ABSOLUTE,2,nil,"label"])
+    assert_equal( @assembler.is_direct_mem?("label_"), [Assembler::ABSOLUTE,2,nil,"label_"])
     assert_equal( @assembler.is_direct_mem?("labe:"),nil)
-    assert_equal( @assembler.is_direct_mem?("label15"),nil) #label >6chars
+    assert_equal( @assembler.is_direct_mem?("label15355_32424"),nil) #label >10chars
     assert_equal( @assembler.is_direct_mem?("5label"),nil) #label must start with char
   end
   

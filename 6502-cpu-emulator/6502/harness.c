@@ -42,9 +42,10 @@ int main()
 	initialize_em6502( &emulator);
 	create_simple_memory_map(&emulator);
 
-	pFile = fopen ("test/disco.as","rb");
+	//pFile = fopen ("test/disco.as","rb");
 	//pFile = fopen ("test/noise.as","rb"); //noise crashes: tries to return from main
 	//pFile = fopen ("test/colors.as","rb");  //colors crashes; same as on 6502asm.com
+	pFile = fopen ("test/alive.as","rb");
 
 	if (pFile==NULL) { printf("Failed to open file"); exit(-1); }
 	else
